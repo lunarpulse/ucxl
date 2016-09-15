@@ -1,5 +1,6 @@
 /* MPU9250 Basic Example Code
-  by: Kris Winer
+  by
+  initially: Kris Winer
   date: April 1, 2014
   license: Beerware - Use this code however you'd like. If you
   find it useful you can buy me a beer some time.
@@ -289,12 +290,12 @@ void setup()
     Serial.println("MPU9250 is online...");
 
     MPU9250SelfTest(SelfTest); // Start by performing self test and reporting values
-    Serial.print("x-axis self test: acceleration trim within : "); Serial.print(SelfTest[0], 1); Serial.println("% of factory value");
-    Serial.print("y-axis self test: acceleration trim within : "); Serial.print(SelfTest[1], 1); Serial.println("% of factory value");
-    Serial.print("z-axis self test: acceleration trim within : "); Serial.print(SelfTest[2], 1); Serial.println("% of factory value");
-    Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3], 1); Serial.println("% of factory value");
-    Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4], 1); Serial.println("% of factory value");
-    Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5], 1); Serial.println("% of factory value");
+    Serial.print("x-axis self test: acceleration trim within : "); Serial.print(SelfTest[0]); Serial.println("% of factory value");
+    Serial.print("y-axis self test: acceleration trim within : "); Serial.print(SelfTest[1]); Serial.println("% of factory value");
+    Serial.print("z-axis self test: acceleration trim within : "); Serial.print(SelfTest[2]); Serial.println("% of factory value");
+    Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3]); Serial.println("% of factory value");
+    Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4]); Serial.println("% of factory value");
+    Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5]); Serial.println("% of factory value");
     delay(2500);
 
     calibrateMPU9250(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers
@@ -325,9 +326,9 @@ void setup()
 
     if (SerialDebug) {
       //  Serial.println("Calibration values: ");
-      Serial.print("X-Axis sensitivity adjustment value "); Serial.println(magCalibration[0], 2);
-      Serial.print("Y-Axis sensitivity adjustment value "); Serial.println(magCalibration[1], 2);
-      Serial.print("Z-Axis sensitivity adjustment value "); Serial.println(magCalibration[2], 2);
+      Serial.print("X-Axis sensitivity adjustment value "); Serial.println(magCalibration[0]);
+      Serial.print("Y-Axis sensitivity adjustment value "); Serial.println(magCalibration[1]);
+      Serial.print("Z-Axis sensitivity adjustment value "); Serial.println(magCalibration[2]);
     }
     Serial.print("AK8963   ");
     Serial.print("ASAX    ");Serial.println(magCalibration[0]);
@@ -346,7 +347,7 @@ void setup()
 void loop()
 {
   // If intPin goes high, all data registers have new data
-  if (readByte(MPU9250_ADDRESS, INT_STATUS) & 0x01) {  // On interrupt, check if data ready interrupt
+  if (readByte(MPU9250_ADDRESS, INT_STATUS) & 0x01) {  // On interrupt from mpu9250, check if data ready interrupt
     readAccelData(accelCount);  // Read the x/y/z adc values
     getAres();
 
@@ -385,16 +386,15 @@ void loop()
 
   // Sensors x (y)-axis of the accelerometer is aligned with the y (x)-axis of the magnetometer;
   // the magnetometer z-axis (+ down) is opposite to z-axis (+ up) of accelerometer and gyro!
-  // We have to make some allowance for this orientationmismatch in feeding the output to the quaternion filter.
+  // We have to make some allowance for this orientation mismatch in feeding the output to the quaternion filter.
   // For the MPU-9250, we have chosen a magnetic rotation that keeps the sensor forward along the x-axis just like
   // in the LSM9DS0 sensor. This rotation can be modified to allow any convenient orientation convention.
   // This is ok by aircraft orientation standards!
   // Pass gyro rate as rad/s
-  MadgwickQuaternionUpdate(ax, ay, az, gx * PI / 180.0f, gy * PI / 180.0f, gz * PI / 180.0f,  my,  mx, mz);
-  //  MahonyQuaternionUpdate(ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, my, mx, mz);
+  //MadgwickQuaternionUpdate(ax, ay, az, gx * PI / 180.0f, gy * PI / 180.0f, gz * PI / 180.0f,  my,  mx, mz);
+  MahonyQuaternionUpdate(ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, my, mx, mz);
 
-
-  if (!AHRS) {
+  if (!AHRS) { //if AHRS false
     delt_t = millis() - count;
     if (delt_t > TIMEGAP) {
 
@@ -405,9 +405,9 @@ void loop()
         Serial.print("Z-acceleration: "); Serial.print(1000 * az); Serial.println(" mg ");
 
         // Print gyro values in degree/sec
-        Serial.print("X-gyro rate: "); Serial.print(gx, 3); Serial.print(" degrees/sec ");
-        Serial.print("Y-gyro rate: "); Serial.print(gy, 3); Serial.print(" degrees/sec ");
-        Serial.print("Z-gyro rate: "); Serial.print(gz, 3); Serial.println(" degrees/sec");
+        Serial.print("X-gyro rate: "); Serial.print(gx); Serial.print(" degrees/sec ");
+        Serial.print("Y-gyro rate: "); Serial.print(gy); Serial.print(" degrees/sec ");
+        Serial.print("Z-gyro rate: "); Serial.print(gz); Serial.println(" degrees/sec");
 
         // Print mag values in degree/sec
         Serial.print("X-mag field: "); Serial.print(mx); Serial.print(" mG ");
@@ -430,8 +430,7 @@ void loop()
       count = millis();
     }
   }
-  else {
-
+  else { //if AHRS true
     // Serial print and/or display at 0.5 s rate independent of data rates
     delt_t = millis() - count;
     if (delt_t > TIMEGAP) { // update LCD once per half-second independent of read rate
@@ -440,9 +439,9 @@ void loop()
         Serial.print("ax = "); Serial.print((int)1000 * ax);
         Serial.print(" ay = "); Serial.print((int)1000 * ay);
         Serial.print(" az = "); Serial.print((int)1000 * az); Serial.println(" mg");
-        Serial.print("gx = "); Serial.print( gx, 2);
-        Serial.print(" gy = "); Serial.print( gy, 2);
-        Serial.print(" gz = "); Serial.print( gz, 2); Serial.println(" deg/s");
+        Serial.print("gx = "); Serial.print( gx);
+        Serial.print(" gy = "); Serial.print( gy);
+        Serial.print(" gz = "); Serial.print( gz); Serial.println(" deg/s");
         Serial.print("mx = "); Serial.print( (int)mx );
         Serial.print(" my = "); Serial.print( (int)my );
         Serial.print(" mz = "); Serial.print( (int)mz ); Serial.println(" mG");
@@ -470,6 +469,7 @@ void loop()
       yaw   -= 13.8; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
       roll  *= 180.0f / PI;
 
+      //printing all results
       if (SerialDebug) {
         Serial.print("Yaw, Pitch, Roll: ");
         Serial.print(yaw, 2);
@@ -788,7 +788,7 @@ void calibrateMPU9250(float * dest1, float * dest2)
     accel_bias[2] += (int32_t) accelsensitivity;
   }
 
-  // Construct the gyro biases for push to the hardware gyro bias registers, which are reset to zero upon device startup
+  // Construct the gyro biases to push to the hardware gyro bias registers, which are reset to zero upon device startup
   data[0] = (-gyro_bias[0] / 4  >> 8) & 0xFF; // Divide by 4 to get 32.9 LSB per deg/s to conform to expected bias input format
   data[1] = (-gyro_bias[0] / 4)       & 0xFF; // Biases are additive, so change sign on calculated average gyro biases
   data[2] = (-gyro_bias[1] / 4  >> 8) & 0xFF;
@@ -866,7 +866,7 @@ void MPU9250SelfTest(float * destination) // Should return percent deviation fro
 {
   uint8_t rawData[6] = {0, 0, 0, 0, 0, 0};
   uint8_t selfTest[6];
-  int32_t gAvg[3] = {0}, aAvg[3] = {0}, aSTAvg[3] = {0}, gSTAvg[3] = {0};
+  int32_t  aAvg[3] = {0}, aSTAvg[3] = {0}, gAvg[3] = {0}, gSTAvg[3] = {0};
   float factoryTrim[6];
   uint8_t FS = 0;
 
