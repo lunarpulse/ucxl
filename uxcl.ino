@@ -55,7 +55,7 @@
 #define ZG_OFFSET_H      0x17
 #define ZG_OFFSET_L      0x18
 #define SMPLRT_DIV       0x19
-#define CONFIG           0x1A
+#define MPU9250CONFIG           0x1A
 #define GYRO_CONFIG      0x1B
 #define ACCEL_CONFIG     0x1C
 #define ACCEL_CONFIG2    0x1D
@@ -267,7 +267,10 @@ typedef struct{
   GyroOutput gyroOut;
   uint16_t range =0;
   bool error = false;
-  uint16_t timeStamp = 0;
+  uint32_t timeStamp = 0;
+  int16_t yaw = 0;
+  int16_t pitch = 0;
+  int16_t roll = 0;
 } SensorData;
 
 //mpu settings
@@ -342,9 +345,6 @@ float eInt[3] = {0.0f, 0.0f, 0.0f};       // vector to hold integral error for M
 
 // current partial number
 int currentValue;
-
-GyroValue gyroValue;
-GyroOutput gyroOut;
 
 ExperimentStatus expLoopStatus;
 //declaring the ExperimentPayload
@@ -658,10 +658,9 @@ uint16_t read_sensor(byte bit8address) {
   }
 }
 
-struct SensorData * measure(const int *sensors) {//sensor array[] and call all and waiting
-  static uint16_t errorCombined = 0;
+SensorData * measure(const int *sensors) {//sensor array[] and call all and waiting
   //static uint16_t error[SENSORNUM] = {0};  //Create a bit to check for catch errors as needed. array = one by one single = stack all
-  static uint16_t range[SENSORNUM] = {0};  //TODO need to make it as a struct outside and update it.
+  //static uint16_t range[SENSORNUM] = {0};  //TODO need to make it as a struct outside and update it.
   static SensorData sensorData[SENSORNUM];
   //initiating all sensors almost simultaneously using interrupts?
 
@@ -685,33 +684,28 @@ struct SensorData * measure(const int *sensors) {//sensor array[] and call all a
       sensorData[i].gyroOut.roll = (uint16_t)(roll);
       sensorData[i].gyroOut.temperature =(uint16_t)(temperature);
       sensorData[i].timeStamp = millis();
+
+
       sensorData[i].error |= start_sensor(sensors[i]);    //Start the sensor and collect any error codes.
-      //TODO Gyro reading in to a structure; str[sensor#, gyro str[]]
-      errorCount++;
-    }
-    //if still fails;
-    if (sensorData[i].error) {
-      // some
-    }
-    errorCombined |= sensorData[i].error; //if any sensor initinated not initiated 0 any initiated 1 reinitiate it if not ready? here?
-  }
-
-  if (errorCombined) {                 //If you had an error starting the sensor there is little point in reading it as you will get old data.
-    delay(expLoopStatus.waitingDelay); //frequency determiner recommended value > 6.5ms * previous measurement / 100
-    //TODO improvement timer instead of delay;
-    for (int i = 0; i < SENSORNUM; i++) {
-      if (!sensorData[i].error) { //error == 0 then
-        sensorData[i].range = 0;
-        continue; //next sequence
+      if (sensorData[i].error) {
+        errorCount++;
+      }else{
+        break;
       }
-      sensorData[i].range = read_sensor(sensors[i]);   //reading the sensor will return an integer value -- if this value is 0 there was an error
-      //TODO triple sensor : insert to a struct or array of int or double - global variable
     }
-    return range; //early return for a valid measurement check available.
-
-  } else {
-    return errorCombined; //returning status array //in the case of all initialisation has failed 000
   }
+
+  delay(expLoopStatus.waitingDelay); //frequency determiner recommended value > 6.5ms * previous measurement / 100
+  //TODO improvement timer instead of delay;
+  for (int i = 0; i < SENSORNUM; i++) {
+    if (!sensorData[i].error) { //error == 0 then
+      sensorData[i].range = 0;
+      continue; //next sequence
+    }
+    sensorData[i].range = read_sensor(sensors[i]);   //reading the sensor will return an integer value -- if this value is 0 there was an error
+    //TODO calculate the time of flight and figure out when was the measurment hit the objects (sensorData[i].timeStamp - millis())/12.8
+  }
+  return sensorData; //early return for a valid measurement check available.Z
 }
 
 void measure_cycle() {
@@ -724,13 +718,13 @@ void measure_cycle() {
     if (pCount == count) {
       uint8_t totalSensorTransmit = expSetting.sensorNumber * expLoopStatus.transmitNumber;
       expPayload.msgLength =  expLoopStatus.sampleCounter % totalSensorTransmit; //preparing the second field of the payload to host //TODO to the settings structure
-      struct SensorData * measurements;
+      SensorData * measurements;
       measurements = measure(ultrasonic_sensor_address); //reading the sensor and append to the reading
 
       //error check? if any of them are 001 style and log it and more than tollerence.
       boolean errorCombined = 0;
       for (int i = 0; i < SENSORNUM; i++) {
-        errorCombined &= measurements[i]; //if any sensor initiated reports 0; then 1
+        errorCombined &= measurements[i].error; //if any sensor initiated reports 0; then 1
       }
 
       if (errorCombined) { //if any error exists continue
@@ -742,7 +736,7 @@ void measure_cycle() {
           //uint16_t measurement = measure(ultrasonic_sensor_address[i]); //reading the sensor and append to the reading
           //uint16_t: 2 bytes -> [0-65535] or [0x0000-0xFFFF]
           //TODO change it to fill up the payload buffer
-          result[expPayload.msgLength] = measurements[i]; //one variable case change array case
+          result[expPayload.msgLength] = measurements[i].range; //one variable case change array case
           expPayload.msgLength++; //= expPayload.msgLength + expSetting.sensorNumber;
         }
         expLoopStatus.sampleCounter++;
@@ -1316,11 +1310,11 @@ void initMPU9250()
   // be higher than 1 / 0.0059 = 170 Hz
   // DLPF_CFG = bits 2:0 = 011; this limits the sample rate to 1000 Hz for both
   // With the MPU9250, it is possible to get gyro sample rates of 32 kHz (!), 8 kHz, or 1 kHz
-  writeByte(MPU9250_ADDRESS, CONFIG, 0x03);
+  writeByte(MPU9250_ADDRESS, MPU9250CONFIG, 0x03);
 
   // Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
   writeByte(MPU9250_ADDRESS, SMPLRT_DIV, 0x04);  // Use a 200 Hz rate; a rate consistent with the filter update rate
-  // determined inset in CONFIG above
+  // determined inset in MPU9250CONFIG above
 
   // Set gyroscope full scale range
   // Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
@@ -1387,7 +1381,7 @@ void calibrateMPU9250(float * dest1, float * dest2)
   delay(15);
 
   // Configure MPU6050 gyro and accelerometer for bias calculation
-  writeByte(MPU9250_ADDRESS, CONFIG, 0x01);      // Set low-pass filter to 188 Hz
+  writeByte(MPU9250_ADDRESS, MPU9250CONFIG, 0x01);      // Set low-pass filter to 188 Hz
   writeByte(MPU9250_ADDRESS, SMPLRT_DIV, 0x00);  // Set sample rate to 1 kHz
   writeByte(MPU9250_ADDRESS, GYRO_CONFIG, 0x00);  // Set gyro full-scale to 250 degrees per second, maximum sensitivity
   writeByte(MPU9250_ADDRESS, ACCEL_CONFIG, 0x00); // Set accelerometer full-scale to 2 g, maximum sensitivity
@@ -1521,7 +1515,7 @@ void MPU9250SelfTest(float * destination) // Should return percent deviation fro
   uint8_t FS = 0;
 
   writeByte(MPU9250_ADDRESS, SMPLRT_DIV, 0x00);    // Set gyro sample rate to 1 kHz
-  writeByte(MPU9250_ADDRESS, CONFIG, 0x02);        // Set gyro sample rate to 1 kHz and DLPF to 92 Hz
+  writeByte(MPU9250_ADDRESS, MPU9250CONFIG, 0x02);        // Set gyro sample rate to 1 kHz and DLPF to 92 Hz
   writeByte(MPU9250_ADDRESS, GYRO_CONFIG, 1 << FS); // Set full scale range for the gyro to 250 dps
   writeByte(MPU9250_ADDRESS, ACCEL_CONFIG2, 0x02); // Set accelerometer rate to 1 kHz and bandwidth to 92 Hz
   writeByte(MPU9250_ADDRESS, ACCEL_CONFIG, 1 << FS); // Set full scale range for the accelerometer to 2 g
