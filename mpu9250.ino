@@ -372,9 +372,9 @@ void loop()
     readMagData(magCount);  // Read the x/y/z adc values
     //getMres();
 
-    //magBias[0] = +470.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
-    //magBias[1] = +120.;  // User environmental x-axis correction in milliGauss
-    //magBias[2] = +125.;  // User environmental x-axis correction in milliGauss
+    //magBias[0] = -448.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
+    //magBias[1] = +280.;  // User environmental x-axis correction in milliGauss
+    //magBias[2] = +54.;  // User environmental x-axis correction in milliGauss
 
     // Calculate the magnetometer values in milliGauss
     // Include factory calibration per data sheet and user environmental corrections
@@ -475,9 +475,10 @@ void loop()
       yaw   = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]);
       pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2]));
       roll  = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
+
       pitch *= 180.0f / PI;
       yaw   *= 180.0f / PI;
-      yaw   -= 13.8; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
+      yaw   -= 10.9; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
       roll  *= 180.0f / PI;
 
       //printing all results
