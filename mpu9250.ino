@@ -215,7 +215,7 @@ enum Mscale {
 uint8_t Gscale = GFS_1000DPS;
 uint8_t Ascale = AFS_2G;
 uint8_t Mscale = MFS_16BITS; // Choose either 14-bit or 16-bit magnetometer resolution
-uint8_t Mmode = 0x02;        // 2 for 8 Hz, 6 for 100 Hz continuous magnetometer data read
+uint8_t Mmode = 0x06;        // 2 for 8 Hz, 6 for 100 Hz continuous magnetometer data read
 float aRes, gRes, mRes;      // scale resolutions per LSB for the sensors
 
 // Pin definitions
@@ -323,11 +323,25 @@ void setup()
 
     // Read the WHO_AM_I register of the magnetometer, this is a good test of communication
     byte d = readByte(AK8963_ADDRESS, WHO_AM_I_AK8963);  // Read WHO_AM_I register for AK8963
-    Serial.println("AK8963 "); Serial.print("I AM "); Serial.println(d, HEX); Serial.print(" I should be "); Serial.println(0x48, HEX);
+    Serial.println("AK8963 "); Serial.print("I AM "); Serial.print(d, HEX); Serial.print(" I should be "); Serial.println(0x48, HEX);
     delay(1000);
     // Get magnetometer calibration from AK8963 ROM
     initAK8963(magCalibration); Serial.println("AK8963 initialized for active data mode...."); // Initialize device for active mode read of magnetometer
-    magcalMPU9250(magBias, magScale);
+    //if magBias is not known, then calibrate it. if known in a place, comment it out
+    //magcalMPU9250(magBias, magScale);
+
+    magBias[0] = 54.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
+    magBias[1] = 280.;  // User environmental x-axis correction in milliGauss
+    magBias[2] = -448.;  // User environmental x-axis correction in milliGauss
+
+    magBias[0] = (float) magBias[0] * mRes * magCalibration[0]; // save mag biases in G for main program
+    magBias[1] = (float) magBias[1] * mRes * magCalibration[1];
+    magBias[2] = (float) magBias[2] * mRes * magCalibration[2];
+
+    // Get soft iron correction estimate hardcoded now but it can be monitored and corrected when new soft iron is introduced.
+    magScale[0] = 0.92;
+    magScale[1] = 1.03;
+    magScale[2] = 1.05;
 
     if (SerialDebug) {
       //  Serial.println("Calibration values: ");
@@ -354,28 +368,21 @@ void loop()
   // If intPin goes high, all data registers have new data
   if (readByte(MPU9250_ADDRESS, INT_STATUS) & 0x01) {  // On interrupt from mpu9250, check if data ready interrupt
     readAccelData(accelCount);  // Read the x/y/z adc values
-    //getAres();
 
     // Now we'll calculate the accleration value into actual g's
-    ax = (float)accelCount[0] * aRes; // - accelBias[0];  // get actual g value, this depends on scale being set
-    ay = (float)accelCount[1] * aRes; // - accelBias[1];
-    az = (float)accelCount[2] * aRes; // - accelBias[2];
+    ax = (float)accelCount[0] * aRes;  //- accelBias[0]/2;  // get actual g value, this depends on scale being set
+    ay = (float)accelCount[1] * aRes;  //- accelBias[1]/2;
+    az = (float)accelCount[2] * aRes;  //- accelBias[2]/2;
 
     readGyroData(gyroCount);  // Read the x/y/z adc values
-    //getGres();
 
     // Calculate the gyro value into actual degrees per second
-    gx = (float)gyroCount[0] * gRes; // get actual gyro value, this depends on scale being set
-    gy = (float)gyroCount[1] * gRes;
-    gz = (float)gyroCount[2] * gRes;
+    gx = (float)gyroCount[0] * gRes;  // - gyroBias[0]/2; // get actual gyro value, this depends on scale being set
+    gy = (float)gyroCount[1] * gRes;  // - gyroBias[1]/2;
+    gz = (float)gyroCount[2] * gRes;  // - gyroBias[2]/2;
 
     readMagData(magCount);  // Read the x/y/z adc values
-    //getMres();
-
-    //magBias[0] = -448.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
-    //magBias[1] = +280.;  // User environmental x-axis correction in milliGauss
-    //magBias[2] = +54.;  // User environmental x-axis correction in milliGauss
-
+  
     // Calculate the magnetometer values in milliGauss
     // Include factory calibration per data sheet and user environmental corrections
     mx = (float)magCount[0] * mRes * magCalibration[0] - magBias[0]; // get actual magnetometer value, this depends on scale being set
@@ -980,6 +987,8 @@ void magcalMPU9250(float * dest1, float * dest2)
     if (Mmode == 0x02) delay(135); // at 8 Hz ODR, new mag data is available every 125 ms
     if (Mmode == 0x06) delay(12); // at 100 Hz ODR, new mag data is available every 10 ms
   }
+  Serial.println("avg mag x   y   z:");
+  Serial.print(" "); Serial.print((mag_max[0] + mag_min[0] ) / 2); Serial.print(" "); Serial.print((mag_max[1] + mag_min[1] ) / 2);; Serial.print(" "); Serial.println((mag_max[2] + mag_min[2] ) / 2);
 
   //    Serial.println("mag x min/max:"); Serial.println(mag_max[0]); Serial.println(mag_min[0]);
   //    Serial.println("mag y min/max:"); Serial.println(mag_max[1]); Serial.println(mag_min[1]);
@@ -993,11 +1002,14 @@ void magcalMPU9250(float * dest1, float * dest2)
   dest1[0] = (float) mag_bias[0] * mRes * magCalibration[0]; // save mag biases in G for main program
   dest1[1] = (float) mag_bias[1] * mRes * magCalibration[1];
   dest1[2] = (float) mag_bias[2] * mRes * magCalibration[2];
+  Serial.println("avg magBias x   y   z:");
+  Serial.print(" "); Serial.print(dest1[0]); Serial.print(" "); Serial.print(dest1[1]);; Serial.print(" "); Serial.println(dest1[2]);
 
   // Get soft iron correction estimate
   mag_scale[0]  = (mag_max[0] - mag_min[0]) / 2; // get average x axis max chord length in counts
   mag_scale[1]  = (mag_max[1] - mag_min[1]) / 2; // get average y axis max chord length in counts
   mag_scale[2]  = (mag_max[2] - mag_min[2]) / 2; // get average z axis max chord length in counts
+
 
   float avg_rad = mag_scale[0] + mag_scale[1] + mag_scale[2];
   avg_rad /= 3.0;
@@ -1005,6 +1017,8 @@ void magcalMPU9250(float * dest1, float * dest2)
   dest2[0] = avg_rad / ((float)mag_scale[0]);
   dest2[1] = avg_rad / ((float)mag_scale[1]);
   dest2[2] = avg_rad / ((float)mag_scale[2]);
+  Serial.println("avg magScale x   y   z:");
+  Serial.print(" "); Serial.print(dest2[0]); Serial.print(" "); Serial.print(dest2[1]);; Serial.print(" "); Serial.println(dest2[2]);
 
   Serial.println("Mag Calibration done!");
 }
