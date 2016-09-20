@@ -221,6 +221,7 @@ typedef struct {
   unsigned int speed_offset = 20;
   unsigned int pwmLimit = 132;
   unsigned int arm = 53;
+  float coefficient_yaw = 0.1;
 } ExperimentSetting;
 
 
@@ -231,6 +232,7 @@ typedef struct {
   unsigned int waitingDelay = 0; //frequency delay between measuemrents
   bool completeMeasurementLoop = false;
   unsigned int prevRotation = 1;
+  float sound_speed = 340.29;
 } ExperimentStatus;
 
 typedef struct {
@@ -260,18 +262,25 @@ typedef struct {
   int16_t pitch = 0;
   int16_t roll = 0;
   int16_t temperature = 0;
-
+  float freq = 0.0f;
 } GyroOutput;
 
-typedef struct{
+typedef struct {
   GyroOutput gyroOut;
-  uint16_t range =0;
+  uint16_t range = 0;
   bool error = false;
   uint32_t timeStamp = 0;
-  int16_t yaw = 0;
-  int16_t pitch = 0;
-  int16_t roll = 0;
+  int16_t reflected_yaw = 0;
+  int16_t reflected_pitch = 0;
+  int16_t reflected_roll = 0;
 } SensorData;
+
+typedef struct {
+  GyroOutput gyroOut;
+  bool error = false;
+  uint32_t timeStampB = 0;
+  uint32_t timeStampE = 0;
+} GyroData;
 
 //mpu settings
 // Set initial input parameters
@@ -298,7 +307,7 @@ enum Mscale {
 uint8_t Gscale = GFS_250DPS;
 uint8_t Ascale = AFS_2G;
 uint8_t Mscale = MFS_16BITS; // Choose either 14-bit or 16-bit magnetometer resolution
-uint8_t Mmode = 0x02;        // 2 for 8 Hz, 6 for 100 Hz continuous magnetometer data read
+uint8_t Mmode = 0x06;        // 2 for 8 Hz, 6 for 100 Hz continuous magnetometer data read
 float aRes, gRes, mRes;      // scale resolutions per LSB for the sensors
 
 // Pin definitions
@@ -309,7 +318,7 @@ int myLed = 13;
 int16_t accelCount[3];  // Stores the 16-bit signed accelerometer sensor output
 int16_t gyroCount[3];   // Stores the 16-bit signed gyro sensor output
 int16_t magCount[3];    // Stores the 16-bit signed magnetometer sensor output
-float magCalibration[3] = {0, 0, 0}, magbias[3] = {0, 0, 0};  // Factory mag calibration and mag bias
+float magCalibration[3] = {0, 0, 0}, magBias[3] = {0, 0, 0}, magScale[3] = {0, 0, 0};  // Factory mag calibration and mag bias
 float gyroBias[3] = {0, 0, 0}, accelBias[3] = {0, 0, 0};      // Bias corrections for gyro and accelerometer
 int16_t tempCount;      // temperature raw count output
 float   temperature;    // Stores the real internal chip temperature in degrees Celsius
@@ -334,10 +343,16 @@ float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;   // compute zeta, the other fre
 uint32_t delt_t = 0; // used to control display output rate
 uint32_t prevMeasure = 0, sumCount = 0; // used to control display output rate
 float pitch, yaw, roll;
+
+/*
+   time markers
+*/
 float deltat = 0.0f, sum = 0.0f;        // integration interval for both filter schemes
 uint32_t lastUpdate = 0, firstUpdate = 0; // used to calculate integration interval
 uint32_t Now = 0;        // used to calculate integration interval
-
+/*
+   IMU calculation parameters
+*/
 float ax, ay, az, gx, gy, gz, mx, my, mz; // variables to hold latest sensor data values
 float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};    // vector to hold quaternion
 float eInt[3] = {0.0f, 0.0f, 0.0f};       // vector to hold integral error for Mahony method
@@ -658,10 +673,10 @@ uint16_t read_sensor(byte bit8address) {
   }
 }
 
-SensorData * measure(const int *sensors) {//sensor array[] and call all and waiting
+bool measure(const int *sensors, SensorData * sensorData) {//sensor array[] and call all and waiting
   //static uint16_t error[SENSORNUM] = {0};  //Create a bit to check for catch errors as needed. array = one by one single = stack all
   //static uint16_t range[SENSORNUM] = {0};  //TODO need to make it as a struct outside and update it.
-  static SensorData sensorData[SENSORNUM];
+  //static SensorData sensorData[SENSORNUM]; //TODO make this as a global and refresh
   //initiating all sensors almost simultaneously using interrupts?
 
   for (int i = 0; i < SENSORNUM; i++) {
@@ -669,120 +684,131 @@ SensorData * measure(const int *sensors) {//sensor array[] and call all and wait
     uint8_t errorCount = 0;
 
     while (errorCount < errorRetry) {
-      sample9DOF();
-      sensorData[i].gyroOut.xa = (uint16_t)(1000 * ax);
-      sensorData[i].gyroOut.ya = (uint16_t)(1000 * ay);
-      sensorData[i].gyroOut.za = (uint16_t)(1000 * az);
-      sensorData[i].gyroOut.xg = (uint16_t)(gx);
-      sensorData[i].gyroOut.yg = (uint16_t)(gy);
-      sensorData[i].gyroOut.zg = (uint16_t)(gz);
-      sensorData[i].gyroOut.xm = (uint16_t)(mx);
-      sensorData[i].gyroOut.ym = (uint16_t)(my);
-      sensorData[i].gyroOut.zm = (uint16_t)(mz);
-      sensorData[i].gyroOut.yaw = (uint16_t)(yaw);
-      sensorData[i].gyroOut.pitch = (uint16_t)(pitch);
-      sensorData[i].gyroOut.roll = (uint16_t)(roll);
-      sensorData[i].gyroOut.temperature =(uint16_t)(temperature);
-      sensorData[i].timeStamp = millis();
+      sampleIMUtoSensor(&sensorData[i]); //taking timestamp 1 here
 
-
-      sensorData[i].error |= start_sensor(sensors[i]);    //Start the sensor and collect any error codes.
+      sensorData[i].error |= !start_sensor(sensors[i]);    //Start the sensor and collect any error codes.
       if (sensorData[i].error) {
         errorCount++;
-      }else{
+      } else {
         break;
       }
     }
   }
-
-  delay(expLoopStatus.waitingDelay); //frequency determiner recommended value > 6.5ms * previous measurement / 100
-  //TODO improvement timer instead of delay;
+  //if any of the sensor data is available
+  bool errorCombined = false;
   for (int i = 0; i < SENSORNUM; i++) {
-    if (!sensorData[i].error) { //error == 0 then
+    errorCombined |= sensorData[i].error;
+    if (errorCombined) {
+      //TODO notify error sensors.
+      if(SerialDebug){
+          Serial.print("Error Sensor number "); Serial.println(i);
+      }
+    } else {
+      continue; //next
+    }
+  }
+  if (errorCombined) {
+    //free(sensorData);
+    return 0; //sending all sensorData with error flag on;
+  }
+  //delay(expLoopStatus.waitingDelay); //frequency determiner recommended value > 6.5ms * previous measurement / 100
+  uint32_t  measureWaitingNow = 0, measureWaitingDelt_t = 0, measureWaitingPrevMeasure = 0, measureWaitingAccumulated = 0; // used to calculate integration interval
+  do {
+    measureWaitingNow =  millis();
+
+    sampleIMU(); //sample more IMU collecting and linear filter them while waiting. asynchronous sampling
+    //shows average angular speed.
+    measureWaitingPrevMeasure = millis();
+
+    measureWaitingDelt_t = measureWaitingNow - measureWaitingPrevMeasure;
+    measureWaitingAccumulated += measureWaitingDelt_t;
+  } while (measureWaitingAccumulated < expLoopStatus.waitingDelay); //no need to be super accurate about this just sample enough to provide
+  //time to collect ultrasonic range finder measurements
+  for (int i = 0; i < SENSORNUM; i++) {
+    if (sensorData[i].error) { //error == 1 then
       sensorData[i].range = 0;
       continue; //next sequence
     }
     sensorData[i].range = read_sensor(sensors[i]);   //reading the sensor will return an integer value -- if this value is 0 there was an error
     //TODO calculate the time of flight and figure out when was the measurment hit the objects (sensorData[i].timeStamp - millis())/12.8
   }
-<<<<<<< HEAD
   //TODO calculate the actual yaw from the gyro and time of flight.
   for (int i = 0; i < SENSORNUM; i++) {
     uint32_t elsp_time = sensorData[i].timeStamp - (uint16_t)(((float)sensorData[i].range / 100.0f / expLoopStatus.sound_speed) * 1000); //time1 ms - time2 ms (range / speed of sound in s *1000 s/ms )
     //TODO find out how to modify the yaw angle from the constant gyro value;
     //possibly parting the mahony linear filtering equation or from general q to yaw.
-
     sensorData[i].reflected_yaw = (uint16_t)(sensorData[i].gyroOut.yaw + (float)(elsp_time * sensorData[i].gyroOut.zg) * expSetting.coefficient_yaw);
     //TODO make this in 3D space
 
   }
   return 1; //early return for a valid measurement check available.Z
-=======
-  return sensorData; //early return for a valid measurement check available.Z
->>>>>>> parent of 4af9003... Sample IMU while waiting for the uxcl measurements
 }
 
 void measure_cycle() {
   //check pause or restart - timer needed
-  //int count = 0; //TODO to global structure member
   uint16_t result[NUMPAYLOADPERPACKET]  = {0}; //initialising the result packet
-  expPayload.angularSpeed = expLoopStatus.pwmSpeed;
+  //TODO: gyro angular speed gy.
 
   for (; expLoopStatus.sampleCounter < expSetting.requiredSampleNumber; ) {
     if (pCount == count) {
       uint8_t totalSensorTransmit = expSetting.sensorNumber * expLoopStatus.transmitNumber;
-      expPayload.msgLength =  expLoopStatus.sampleCounter % totalSensorTransmit; //preparing the second field of the payload to host //TODO to the settings structure
-      SensorData * measurements;
-      measurements = measure(ultrasonic_sensor_address); //reading the sensor and append to the reading
+      uint8_t sampling_iteration =  NUMPAYLOADPERPACKET / totalSensorTransmit; //preparing the second field of the payload to host
+      //TODO to the settings structure
+      for (size_t j= 0; j < sampling_iteration; j++) {
+        SensorData measurements[SENSORNUM];
+        bool measurement_check = 0;
+        measurement_check = measure(ultrasonic_sensor_address, measurements); //reading the sensor and append to the reading
 
-      //error check? if any of them are 001 style and log it and more than tollerence.
-      boolean errorCombined = 0;
-      for (int i = 0; i < SENSORNUM; i++) {
-        errorCombined &= measurements[i].error; //if any sensor initiated reports 0; then 1
-      }
-
-      if (errorCombined) { //if any error exists continue
-        free(measurements); //contains 010 eror codes
-        continue; //not incrementing as the first tab of the for loop not initialised
-      } else {
-        //prepare the results to send through the radio
-        for (int i = 0; i < SENSORNUM; i++) {
-          //uint16_t measurement = measure(ultrasonic_sensor_address[i]); //reading the sensor and append to the reading
-          //uint16_t: 2 bytes -> [0-65535] or [0x0000-0xFFFF]
-          //TODO change it to fill up the payload buffer
-          result[expPayload.msgLength] = measurements[i].range; //one variable case change array case
-          expPayload.msgLength++; //= expPayload.msgLength + expSetting.sensorNumber;
+        if (!measurement_check) {
+          if (SerialDebug) {
+            Serial.println("something wrong with all sensors");
+          }
+          //TODO send warning signs through nrf24
+          return;
+        } else {
+          //error check? if any of them are 001 style and log it and more than tollerence.
+          bool errorCombined = 0;
+          for (size_t i = 0; i < SENSORNUM; i++) {
+            errorCombined &= measurements[i].error; //if any sensor initiated reports 0; then 1
+            if (!errorCombined){
+              expPayload.angularSpeed = measurements[i].gyroOut.zg; //in the prototype experiment only z axis of gyro
+            }
+          }
+          //prepare the results to send through the radio
+          for (size_t i = 0; i < SENSORNUM; i++) {
+            //uint16_t measurement = measure(ultrasonic_sensor_address[i]); //reading the sensor and append to the reading
+            //uint16_t: 2 bytes -> [0-65535] or [0x0000-0xFFFF]
+            //TODO change it to fill up the payload buffer
+            result[expPayload.msgLength++] = measurements[i].reflected_yaw;
+            result[expPayload.msgLength++] = measurements[i].range; //one variable case change array case
+            //expPayload.msgLength++; //= expPayload.msgLength + expSetting.sensorNumber;
+          }
         }
         expLoopStatus.sampleCounter++;
         //expPayload.msgLength= expPayload.msgLength + expSetting.sensorNumber;
-        free(measurements);
+        //free(measurements);
+      }
+      if (expPayload.msgLength > totalSensorTransmit-1 || expLoopStatus.sampleCounter > expSetting.requiredSampleNumber - 1) { //full buffer then send it and prepare it
+        //prepare the data, by mix and match method, into a payload structure and send it
+        const uint16_t payload[] = {expPayload.angularSpeed, expPayload.msgLength, result[0], result[1],
+                                    result[2], result[3], result[4], result[5], result[6], result[7],
+                                    result[8], result[9], result[10], result[11], result[12], result[13]
+                                   }; //initialising and terminating in this scope only
 
-        if (expPayload.msgLength == totalSensorTransmit || expLoopStatus.sampleCounter == expSetting.requiredSampleNumber || expLoopStatus.sampleCounter > expSetting.requiredSampleNumber ) { //full buffer then send it and prepare it
-          //prepare the data, by mix and match method, into a payload structure and send it
-          const uint16_t payload[] = {expPayload.angularSpeed, expPayload.msgLength, result[0], result[1],
-                                      result[2], result[3], result[4], result[5], result[6], result[7],
-                                      result[8], result[9], result[10], result[11], result[12], result[13]
-                                     }; //initialising and terminating in this scope only
+        sendResultToHost(payload); //sending only we need?
 
-          sendResultToHost(payload); //sending only we need?
-
-          memset(result, 0, NUMPAYLOADPERPACKET * sizeof & result[0]); //set all field of payload array to 0
-        }
+        memset(result, 0, NUMPAYLOADPERPACKET * sizeof & result[0]); //set all field of payload array to 0 //probably unneccesary
       }
     } else {
-
       return;// early return due to the unprocessed packet from radio
     }
-
-
   }//iteration loop
-
   //initialising it after looping
-
   expLoopStatus.completeMeasurementLoop = true; //increment pwm speed outter loop
   expLoopStatus.sampleCounter = 0; //initialise the counter to zero to get new loop later
   return; //successful return after all the the
 }
+
 void slowDown(unsigned int required_speed, unsigned int interval) {
   myservo.write(required_speed - (required_speed - expLoopStatus.pwmSpeed) / 3); //expSetting.rotationDirection ==1
   delay(interval);//TODO find alternative code not to use the inter timer0 disable timer 0 later
@@ -941,18 +967,22 @@ void setup ()
     }
     delay(500);
 
+    getAres();
+    getGres();
+    getMres();
+
     calibrateMPU9250(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers
 
     if (SerialDebug) {
       Serial.println(" MPU9250 calibrated and its bias");
       Serial.println(" x   y   z  ");
       Serial.print(" ");
-      Serial.print((int)(1000 * accelBias[0]));Serial.print(" ");
-      Serial.print((int)(1000 * accelBias[1]));Serial.print(" ");
+      Serial.print((int)(1000 * accelBias[0])); Serial.print(" ");
+      Serial.print((int)(1000 * accelBias[1])); Serial.print(" ");
       Serial.print((int)(1000 * accelBias[2]));
       Serial.println("mg");
-      Serial.print(gyroBias[0]);Serial.print(" ");
-      Serial.print(gyroBias[1]);Serial.print(" ");
+      Serial.print(gyroBias[0]); Serial.print(" ");
+      Serial.print(gyroBias[1]); Serial.print(" ");
       Serial.print(gyroBias[2]);
       Serial.println("o/s");
     }
@@ -966,12 +996,29 @@ void setup ()
     // Read the WHO_AM_I register of the magnetometer, this is a good test of communication
     byte d = readByte(AK8963_ADDRESS, WHO_AM_I_AK8963);  // Read WHO_AM_I register for AK8963
     if (SerialDebug) {
-      Serial.println("AK8963 "); Serial.print("I AM "); Serial.println(d, HEX); Serial.print(" I should be "); Serial.println(0x48, HEX);
+      Serial.println("AK8963 "); Serial.print("I AM "); Serial.print(d, HEX); Serial.print(" I should be "); Serial.println(0x48, HEX);
     }
     delay(1000);
 
     // Get magnetometer calibration from AK8963 ROM
     initAK8963(magCalibration); Serial.println("AK8963 initialized for active data mode...."); // Initialize device for active mode read of magnetometer
+
+    {
+      //magcalMPU9250(magBias, magScale);
+      float magbias[3] = {0, 0, 0};
+      magbias[0] = 54.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
+      magbias[1] = 280.;  // User environmental x-axis correction in milliGauss
+      magbias[2] = -448.;  // User environmental x-axis correction in milliGauss
+
+      magBias[0] = (float) magbias[0] * mRes * magCalibration[0]; // save mag biases in G for main program
+      magBias[1] = (float) magbias[1] * mRes * magCalibration[1];
+      magBias[2] = (float) magbias[2] * mRes * magCalibration[2];
+
+      // Get soft iron correction estimate hardcoded now but it can be monitored and corrected when new soft iron is introduced.
+      magScale[0] = 0.92;
+      magScale[1] = 1.03;
+      magScale[2] = 1.05;
+    }
 
     if (SerialDebug) {
       Serial.println("Calibration values: ");
@@ -985,9 +1032,9 @@ void setup ()
   else
   {
     if (SerialDebug) {
-    Serial.print("Could not connect to MPU9250: 0x");
-    Serial.println(c, HEX);
-  }
+      Serial.print("Could not connect to MPU9250: 0x");
+      Serial.println(c, HEX);
+    }
     while (1) ; // Loop forever if communication doesn't happen
   }
 
@@ -1013,21 +1060,21 @@ void loop ()
   }
   else { //measuring or sensing if not getting any incomming message
     /*
-    { //sensor reading function
+      { //sensor reading function
       fillDummy();
-    }
-    const word payload[] = {expPayload.angularSpeed, expPayload.msgLength, expPayload.data0, expPayload.data1,
+      }
+      const word payload[] = {expPayload.angularSpeed, expPayload.msgLength, expPayload.data0, expPayload.data1,
                             expPayload.data2, expPayload.data3, expPayload.data4, expPayload.data5,
                             expPayload.data6, expPayload.data7, expPayload.data8, expPayload.data9,
                             expPayload.data10, expPayload.data11, expPayload.data12, expPayload.data13
                            }; //initialising and terminating in this scope only
-    //TODO just get the structure sent
-    {
+      //TODO just get the structure sent
+      {
       delay(expLoopStatus.waitingDelay);
       //measuing sensors instead of delay
 
       sendResultToHost(payload); //TODO check if actually sending it well from
-    }
+      }
     */
     ucxl_measurements();
     //attach the interrupt back to recv the incomming messages
@@ -1043,35 +1090,33 @@ void interruptFunction() {
 //===================================================================================================================
 //====== Set of helper function to access acceleration. gyroscope, magnetometer, and temperature data
 //===================================================================================================================
-void sample9DOF(){
+void sampleIMU() {
   if (readByte(MPU9250_ADDRESS, INT_STATUS) & 0x01) {  // On interrupt from mpu9250, check if data ready interrupt
     readAccelData(accelCount);  // Read the x/y/z adc values
-    getAres();
 
     // Now we'll calculate the accleration value into actual g's
-    ax = (float)accelCount[0] * aRes; // - accelBias[0];  // get actual g value, this depends on scale being set
-    ay = (float)accelCount[1] * aRes; // - accelBias[1];
-    az = (float)accelCount[2] * aRes; // - accelBias[2];
+    ax = (float)accelCount[0] * aRes;  //- accelBias[0]/2;  // get actual g value, this depends on scale being set
+    ay = (float)accelCount[1] * aRes;  //- accelBias[1]/2;
+    az = (float)accelCount[2] * aRes;  //- accelBias[2]/2;
 
     readGyroData(gyroCount);  // Read the x/y/z adc values
-    getGres();
 
     // Calculate the gyro value into actual degrees per second
-    gx = (float)gyroCount[0] * gRes; // get actual gyro value, this depends on scale being set
-    gy = (float)gyroCount[1] * gRes;
-    gz = (float)gyroCount[2] * gRes;
+    gx = (float)gyroCount[0] * gRes;  // - gyroBias[0]/2; // get actual gyro value, this depends on scale being set
+    gy = (float)gyroCount[1] * gRes;  // - gyroBias[1]/2;
+    gz = (float)gyroCount[2] * gRes;  // - gyroBias[2]/2;
 
     readMagData(magCount);  // Read the x/y/z adc values
-    getMres();
-    magbias[0] = +470.;  // User environmental x-axis correction in milliGauss, should be automatically calculated
-    magbias[1] = +120.;  // User environmental x-axis correction in milliGauss
-    magbias[2] = +125.;  // User environmental x-axis correction in milliGauss
 
     // Calculate the magnetometer values in milliGauss
     // Include factory calibration per data sheet and user environmental corrections
-    mx = (float)magCount[0] * mRes * magCalibration[0] - magbias[0]; // get actual magnetometer value, this depends on scale being set
-    my = (float)magCount[1] * mRes * magCalibration[1] - magbias[1];
-    mz = (float)magCount[2] * mRes * magCalibration[2] - magbias[2];
+    mx = (float)magCount[0] * mRes * magCalibration[0] - magBias[0]; // get actual magnetometer value, this depends on scale being set
+    my = (float)magCount[1] * mRes * magCalibration[1] - magBias[1];
+    mz = (float)magCount[2] * mRes * magCalibration[2] - magBias[2];
+
+    mx *= magScale[0];
+    my *= magScale[1];
+    mz *= magScale[2];
   }
 
   Now = micros();
@@ -1089,7 +1134,11 @@ void sample9DOF(){
   // This is ok by aircraft orientation standards!
   // Pass gyro rate as rad/s
   //MadgwickQuaternionUpdate(ax, ay, az, gx * PI / 180.0f, gy * PI / 180.0f, gz * PI / 180.0f,  my,  mx, mz);
-  MahonyQuaternionUpdate(ax, ay, az, gx*PI/180.0f, gy*PI/180.0f, gz*PI/180.0f, my, mx, mz);
+  MahonyQuaternionUpdate(ax, ay, az, gx * PI / 180.0f, gy * PI / 180.0f, gz * PI / 180.0f, my, mx, mz);
+
+}
+void sampleIMUtoSensor(SensorData * sensorData) {
+  sampleIMU();
 
   if (!AHRS) { //if AHRS false
     delt_t = millis() - prevMeasure;
@@ -1112,19 +1161,18 @@ void sample9DOF(){
         Serial.print("Z-mag field: "); Serial.print(mz); Serial.println(" mG");
 
         tempCount = readTempData();  // Read the adc values
-        temperature = ((float) tempCount) / 333.87 + 21.0; // Temperature in degrees Centigrade
+        temperature = ((float) tempCount) / 333.87 + 21.0; // Temperature in degrees Centigrade TODO need to change it to the
+        sensorData->gyroOut.temperature = (uint16_t)(temperature);
         // Print temperature in degrees Centigrade
         //Serial.print("Temperature is ");  Serial.print(temperature, 1);  Serial.println(" degrees C"); // Print T values to tenths of s degree C
       }
-
       prevMeasure = millis();
     }
   }
   else { //if AHRS true
     // Serial print and/or display at 0.5 s rate independent of data rates
     delt_t = millis() - prevMeasure;
-    if (delt_t > TIMEGAP) { // update LCD once per half-second independent of read rate
-
+    if (delt_t > TIMEGAP) { //independent report to serial
       if (SerialDebug) {
         Serial.print("ax = "); Serial.print((int)1000 * ax);
         Serial.print(" ay = "); Serial.print((int)1000 * ay);
@@ -1156,8 +1204,13 @@ void sample9DOF(){
       roll  = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]);
       pitch *= 180.0f / PI;
       yaw   *= 180.0f / PI;
-      yaw   -= 13.8; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
+      yaw   -= 10.9; // Declination at Danville, California is 13 degrees 48 minutes and 47 seconds on 2014-04-04
       roll  *= 180.0f / PI;
+
+      sensorData->gyroOut.yaw = (uint16_t)(yaw);
+      sensorData->gyroOut.pitch = (uint16_t)(pitch);
+      sensorData->gyroOut.roll = (uint16_t)(roll);
+      sensorData->gyroOut.freq = (float)(sumCount / sum);
 
       //printing all results
       if (SerialDebug) {
@@ -1187,6 +1240,19 @@ void sample9DOF(){
     }
   }
 
+  sensorData->gyroOut.xa = (uint16_t)(1000 * ax);
+  sensorData->gyroOut.ya = (uint16_t)(1000 * ay);
+  sensorData->gyroOut.za = (uint16_t)(1000 * az);
+
+  sensorData->gyroOut.xg = (uint16_t)(gx);
+  sensorData->gyroOut.yg = (uint16_t)(gy);
+  sensorData->gyroOut.zg = (uint16_t)(gz);
+
+  sensorData->gyroOut.xm = (uint16_t)(mx);
+  sensorData->gyroOut.ym = (uint16_t)(my);
+  sensorData->gyroOut.zm = (uint16_t)(mz);
+
+  sensorData->timeStamp = millis();
 }
 
 void getMres() {
@@ -1397,7 +1463,7 @@ void calibrateMPU9250(float * dest1, float * dest2)
   // Configure MPU6050 gyro and accelerometer for bias calculation
   writeByte(MPU9250_ADDRESS, MPU9250CONFIG, 0x01);      // Set low-pass filter to 188 Hz
   writeByte(MPU9250_ADDRESS, SMPLRT_DIV, 0x00);  // Set sample rate to 1 kHz
-  writeByte(MPU9250_ADDRESS, GYRO_CONFIG, 0x00);  // Set gyro full-scale to 250 degrees per second, maximum sensitivity
+  writeByte(MPU9250_ADDRESS, GYRO_CONFIG, 0x10);  // Set gyro full-scale to 1000 degrees per second, maximum sensitivity
   writeByte(MPU9250_ADDRESS, ACCEL_CONFIG, 0x00); // Set accelerometer full-scale to 2 g, maximum sensitivity
 
   uint16_t  gyrosensitivity  = 131;   // = 131 LSB/degrees/sec
@@ -1602,7 +1668,63 @@ void MPU9250SelfTest(float * destination) // Should return percent deviation fro
     destination[i]   = 100.0 * ((float)(aSTAvg[i] - aAvg[i])) / factoryTrim[i] - 100.; // Report percent differences
     destination[i + 3] = 100.0 * ((float)(gSTAvg[i] - gAvg[i])) / factoryTrim[i + 3] - 100.; // Report percent differences
   }
+}
 
+void magcalMPU9250(float * dest1, float * dest2)
+{
+  uint16_t ii = 0, sample_count = 0;
+  int32_t mag_bias[3] = {0, 0, 0}, mag_scale[3] = {0, 0, 0};
+  int16_t mag_max[3] = { -32767, -32767, -32767}, mag_min[3] = {32767, 32767, 32767}, mag_temp[3] = {0, 0, 0};
+
+  Serial.println("Mag Calibration: Wave device in a figure eight until done!");
+  delay(4000);
+
+  // shoot for ~fifteen seconds of mag data
+  if (Mmode == 0x02) sample_count = 128; // at 8 Hz ODR, new mag data is available every 125 ms
+  if (Mmode == 0x06) sample_count = 1500; // at 100 Hz ODR, new mag data is available every 10 ms
+  for (ii = 0; ii < sample_count; ii++) {
+    readMagData(mag_temp);  // Read the mag data
+    for (int jj = 0; jj < 3; jj++) {
+      if (mag_temp[jj] > mag_max[jj]) mag_max[jj] = mag_temp[jj];
+      if (mag_temp[jj] < mag_min[jj]) mag_min[jj] = mag_temp[jj];
+    }
+    if (Mmode == 0x02) delay(135); // at 8 Hz ODR, new mag data is available every 125 ms
+    if (Mmode == 0x06) delay(12); // at 100 Hz ODR, new mag data is available every 10 ms
+  }
+  Serial.println("avg mag x   y   z:");
+  Serial.print(" "); Serial.print((mag_max[0] + mag_min[0] ) / 2); Serial.print(" "); Serial.print((mag_max[1] + mag_min[1] ) / 2);; Serial.print(" "); Serial.println((mag_max[2] + mag_min[2] ) / 2);
+
+  //    Serial.println("mag x min/max:"); Serial.println(mag_max[0]); Serial.println(mag_min[0]);
+  //    Serial.println("mag y min/max:"); Serial.println(mag_max[1]); Serial.println(mag_min[1]);
+  //    Serial.println("mag z min/max:"); Serial.println(mag_max[2]); Serial.println(mag_min[2]);
+
+  // Get hard iron correction
+  mag_bias[0]  = (mag_max[0] + mag_min[0]) / 2; // get average x mag bias in counts
+  mag_bias[1]  = (mag_max[1] + mag_min[1]) / 2; // get average y mag bias in counts
+  mag_bias[2]  = (mag_max[2] + mag_min[2]) / 2; // get average z mag bias in counts
+
+  dest1[0] = (float) mag_bias[0] * mRes * magCalibration[0]; // save mag biases in G for main program
+  dest1[1] = (float) mag_bias[1] * mRes * magCalibration[1];
+  dest1[2] = (float) mag_bias[2] * mRes * magCalibration[2];
+  Serial.println("avg magBias x   y   z:");
+  Serial.print(" "); Serial.print(dest1[0]); Serial.print(" "); Serial.print(dest1[1]);; Serial.print(" "); Serial.println(dest1[2]);
+
+  // Get soft iron correction estimate
+  mag_scale[0]  = (mag_max[0] - mag_min[0]) / 2; // get average x axis max chord length in counts
+  mag_scale[1]  = (mag_max[1] - mag_min[1]) / 2; // get average y axis max chord length in counts
+  mag_scale[2]  = (mag_max[2] - mag_min[2]) / 2; // get average z axis max chord length in counts
+
+
+  float avg_rad = mag_scale[0] + mag_scale[1] + mag_scale[2];
+  avg_rad /= 3.0;
+
+  dest2[0] = avg_rad / ((float)mag_scale[0]);
+  dest2[1] = avg_rad / ((float)mag_scale[1]);
+  dest2[2] = avg_rad / ((float)mag_scale[2]);
+  Serial.println("avg magScale x   y   z:");
+  Serial.print(" "); Serial.print(dest2[0]); Serial.print(" "); Serial.print(dest2[1]);; Serial.print(" "); Serial.println(dest2[2]);
+
+  Serial.println("Mag Calibration done!");
 }
 
 void writeByte(uint8_t address, uint8_t subAddress, uint8_t data)
@@ -1809,7 +1931,6 @@ void MahonyQuaternionUpdate(float ax, float ay, float az, float gx, float gy, fl
     eInt[1] = 0.0f;
     eInt[2] = 0.0f;
   }
-
   // Apply feedback terms
   gx = gx + Kp * ex + Ki * eInt[0];
   gy = gy + Kp * ey + Ki * eInt[1];
