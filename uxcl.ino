@@ -741,7 +741,7 @@ bool measure(const int *sensors, SensorData * sensorData) {//sensor array[] and 
     //TODO find out how to modify the yaw angle from the constant gyro value;
     //possibly parting the mahony linear filtering equation or from general q to yaw.
 
-    sensorData[i].reflected_yaw = (uint16_t)(sensorData[i].gyroOut.yaw + (float)(elsp_time * sensorData[i].gyroOut.yg) * expSetting.coefficient_yaw);
+    sensorData[i].reflected_yaw = (uint16_t)(sensorData[i].gyroOut.yaw + (float)(elsp_time * sensorData[i].gyroOut.zg) * expSetting.coefficient_yaw);
     //TODO make this in 3D space
 
   }
