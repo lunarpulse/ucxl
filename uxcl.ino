@@ -6,8 +6,7 @@
 #include <RF24.h> //nRF2401 libarary found at https://github.com/tmrh20/RF24/
 #define NUMPAYLOADPERPACKET 14
 #define PACKSIZE 32
-#define SENSORNUM 4
-#define GYRO_ADDRESS 0x69 //gyro address
+#define SENSORNUM 1
 
 //Magnetometer Registers
 #define AK8963_ADDRESS   0x0C
@@ -211,7 +210,7 @@ typedef enum {STOP, RESTART, RUN} motorStates; //how about CL, ACL ?
 
 // structure to hold experimental configuration data from users
 typedef struct {
-  unsigned int sensorNumber = 1;
+  unsigned int sensorNumber = SENSORNUM;
   unsigned int rotationSpeedIncrement = 1;   // I length of bootloader hex data (bytes)
   unsigned int measurmentFrequency = 20; //F
   unsigned int requiredSampleNumber = 72; //M
@@ -371,7 +370,7 @@ ExperimentSetting expSetting;
 //======Sensor and servo init start
 Servo myservo; //download the servo library and inspect how it works and use it in C code later
 const int esc_sig_pin = 3; // any pwm available pin (3, 6, 9, 11)
-const int ultrasonic_sensor_address[SENSORNUM] = {112, 110, 114, 116}; //ultrasonic address 224` to 110.
+const int ultrasonic_sensor_address[SENSORNUM] = {24};
 
 //int angular_speed = 0; //initial angular speed
 //int limit = 132; // anticlockwise PWM upper speed limit for the ESC
@@ -700,8 +699,8 @@ bool measure(const int *sensors, SensorData * sensorData) {//sensor array[] and 
     errorCombined |= sensorData[i].error;
     if (errorCombined) {
       //TODO notify error sensors.
-      if(SerialDebug){
-          Serial.print("Error Sensor number "); Serial.println(i);
+      if (SerialDebug) {
+        Serial.print("Error Sensor number "); Serial.println(i);
       }
     } else {
       continue; //next
@@ -714,14 +713,18 @@ bool measure(const int *sensors, SensorData * sensorData) {//sensor array[] and 
   //delay(expLoopStatus.waitingDelay); //frequency determiner recommended value > 6.5ms * previous measurement / 100
   uint32_t  measureWaitingNow = 0, measureWaitingDelt_t = 0, measureWaitingPrevMeasure = 0, measureWaitingAccumulated = 0; // used to calculate integration interval
   do {
-    measureWaitingNow =  millis();
+    if (pCount == count) {
+      measureWaitingNow =  millis();
 
-    sampleIMU(); //sample more IMU collecting and linear filter them while waiting. asynchronous sampling
-    //shows average angular speed.
-    measureWaitingPrevMeasure = millis();
+      sampleIMU(); //sample more IMU collecting and linear filter them while waiting. asynchronous sampling
+      //shows average angular speed.
+      measureWaitingPrevMeasure = millis();
 
-    measureWaitingDelt_t = measureWaitingNow - measureWaitingPrevMeasure;
-    measureWaitingAccumulated += measureWaitingDelt_t;
+      measureWaitingDelt_t = measureWaitingPrevMeasure - measureWaitingNow;
+      measureWaitingAccumulated += measureWaitingDelt_t;
+    }else{
+      return 0;
+    }
   } while (measureWaitingAccumulated < expLoopStatus.waitingDelay); //no need to be super accurate about this just sample enough to provide
   //time to collect ultrasonic range finder measurements
   for (int i = 0; i < SENSORNUM; i++) {
@@ -737,67 +740,80 @@ bool measure(const int *sensors, SensorData * sensorData) {//sensor array[] and 
     uint32_t elsp_time = sensorData[i].timeStamp - (uint16_t)(((float)sensorData[i].range / 100.0f / expLoopStatus.sound_speed) * 1000); //time1 ms - time2 ms (range / speed of sound in s *1000 s/ms )
     //TODO find out how to modify the yaw angle from the constant gyro value;
     //possibly parting the mahony linear filtering equation or from general q to yaw.
-    sensorData[i].reflected_yaw = (uint16_t)(sensorData[i].gyroOut.yaw + (float)(elsp_time * sensorData[i].gyroOut.zg) * expSetting.coefficient_yaw);
+    sensorData[i].reflected_yaw = sensorData[i].gyroOut.yaw; // (uint16_t)(sensorData[i].gyroOut.yaw + (float)(elsp_time * sensorData[i].gyroOut.zg)/1000000.0f * expSetting.coefficient_yaw);
     //TODO make this in 3D space
 
   }
   return 1; //early return for a valid measurement check available.Z
 }
-
+uint16_t result[NUMPAYLOADPERPACKET]  = {0}; //initialising the result packet
 void measure_cycle() {
   //check pause or restart - timer needed
-  uint16_t result[NUMPAYLOADPERPACKET]  = {0}; //initialising the result packet
+  
   //TODO: gyro angular speed gy.
-
+  
   for (; expLoopStatus.sampleCounter < expSetting.requiredSampleNumber; ) {
     if (pCount == count) {
-      uint8_t totalSensorTransmit = expSetting.sensorNumber * expLoopStatus.transmitNumber;
-      uint8_t sampling_iteration =  NUMPAYLOADPERPACKET / totalSensorTransmit; //preparing the second field of the payload to host
+      int8_t totalSensorTransmit = expSetting.sensorNumber * expLoopStatus.transmitNumber; //14
       //TODO to the settings structure
-      for (size_t j= 0; j < sampling_iteration; j++) {
-        SensorData measurements[SENSORNUM];
-        bool measurement_check = 0;
-        measurement_check = measure(ultrasonic_sensor_address, measurements); //reading the sensor and append to the reading
+      SensorData measurements[SENSORNUM];
+      bool measurement_check = 0;
+      measurement_check = measure(ultrasonic_sensor_address, measurements); //reading the sensor and append to the reading
 
-        if (!measurement_check) {
-          if (SerialDebug) {
-            Serial.println("something wrong with all sensors");
-          }
-          //TODO send warning signs through nrf24
-          return;
-        } else {
-          //error check? if any of them are 001 style and log it and more than tollerence.
-          bool errorCombined = 0;
-          for (size_t i = 0; i < SENSORNUM; i++) {
-            errorCombined &= measurements[i].error; //if any sensor initiated reports 0; then 1
-            if (!errorCombined){
-              expPayload.angularSpeed = measurements[i].gyroOut.zg; //in the prototype experiment only z axis of gyro
-            }
-          }
-          //prepare the results to send through the radio
-          for (size_t i = 0; i < SENSORNUM; i++) {
-            //uint16_t measurement = measure(ultrasonic_sensor_address[i]); //reading the sensor and append to the reading
-            //uint16_t: 2 bytes -> [0-65535] or [0x0000-0xFFFF]
-            //TODO change it to fill up the payload buffer
-            result[expPayload.msgLength++] = measurements[i].reflected_yaw;
-            result[expPayload.msgLength++] = measurements[i].range; //one variable case change array case
-            //expPayload.msgLength++; //= expPayload.msgLength + expSetting.sensorNumber;
+      if (measurement_check) {
+        //prepare the results to send through the radio
+        for (size_t i = 0; i < SENSORNUM; i++) {
+          //uint16_t measurement = measure(ultrasonic_sensor_address[i]); //reading the sensor and append to the reading
+          //uint16_t: 2 bytes -> [0-65535] or [0x0000-0xFFFF]
+          //TODO change it to fill up the payload buffer
+          result[expPayload.msgLength++] = (uint16_t)measurements[i].reflected_yaw;
+          result[expPayload.msgLength++] = (uint16_t)measurements[i].range; //one variable case change array case
+          if(SerialDebug){
+            Serial.print(expPayload.msgLength - 2); Serial.print(" "); Serial.print(result[expPayload.msgLength - 2]); Serial.print(" ");
+            Serial.print(expPayload.msgLength - 1); Serial.print(" "); Serial.println(result[expPayload.msgLength - 1]);  
           }
         }
-        expLoopStatus.sampleCounter++;
+        //error check? if any of them are 001 style and log it and more than tollerence.
+        bool errorCombined = 0;
+        uint16_t SumAngSpeed = 0;
+        uint16_t countAngSpeed = 0;
+        for (size_t i = 0; i < SENSORNUM; i++) {
+          errorCombined &= (uint16_t)measurements[i].error; //if any sensor initiated reports 0; then 1
+          if (!errorCombined) {
+            SumAngSpeed += (uint16_t)measurements[i].gyroOut.zg; //in the prototype experiment only z axis of gyro
+            countAngSpeed++;
+          }
+        }
+        if (countAngSpeed) {
+          expPayload.angularSpeed = (uint16_t)(SumAngSpeed / countAngSpeed);
+        }
+          expLoopStatus.sampleCounter++;
         //expPayload.msgLength= expPayload.msgLength + expSetting.sensorNumber;
-        //free(measurements);
-      }
-      if (expPayload.msgLength > totalSensorTransmit-1 || expLoopStatus.sampleCounter > expSetting.requiredSampleNumber - 1) { //full buffer then send it and prepare it
-        //prepare the data, by mix and match method, into a payload structure and send it
-        const uint16_t payload[] = {expPayload.angularSpeed, expPayload.msgLength, result[0], result[1],
-                                    result[2], result[3], result[4], result[5], result[6], result[7],
-                                    result[8], result[9], result[10], result[11], result[12], result[13]
-                                   }; //initialising and terminating in this scope only
-
-        sendResultToHost(payload); //sending only we need?
-
-        memset(result, 0, NUMPAYLOADPERPACKET * sizeof & result[0]); //set all field of payload array to 0 //probably unneccesary
+        //Serial.print(expPayload.msgLength); Serial.print(" ");Serial.print(expLoopStatus.sampleCounter); Serial.println(" ");
+        if (expPayload.msgLength > totalSensorTransmit - 1 || expLoopStatus.sampleCounter > expSetting.requiredSampleNumber - 1) { //full buffer then send it and prepare it
+          //prepare the data, by mix and match method, into a payload structure and send it
+          const uint16_t payload[] = {expPayload.angularSpeed, expPayload.msgLength, result[0], result[1],
+                                      result[2], result[3], result[4], result[5], result[6], result[7],
+                                      result[8], result[9], result[10], result[11], result[12], result[13]
+                                     }; //initialising and terminating in this scope only
+          if(SerialDebug){
+            for (int i = 0; i < expPayload.msgLength; ++i ) {
+             Serial.print(payload[2 + i]);
+             Serial.print("  ");
+            }
+            Serial.println();
+          }
+           
+          sendResultToHost(payload); //sending only we need?
+          expPayload.msgLength = 0;
+          memset(result, 0, NUMPAYLOADPERPACKET * sizeof & result[0]); //set all field of payload array to 0 //probably unneccesary
+        }
+      } else {
+        if (SerialDebug) {
+          Serial.println("something wrong with all sensors");
+        }
+        //TODO send warning signs through nrf24
+        return;
       }
     } else {
       return;// early return due to the unprocessed packet from radio

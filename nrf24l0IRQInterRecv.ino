@@ -2,6 +2,9 @@
 #include <SPI.h> //Call SPI library so you can communicate with the nRF24L01+
 #include <nRF24L01.h> //nRF2401 libarary found at https://github.com/tmrh20/RF24/
 #include <RF24.h> //nRF2401 libarary found at https://github.com/tmrh20/RF24/
+
+#define SerialDebug false   // set to true to get Serial output for debugging
+
 const int pinCE = 4; //This pin is used to set the nRF24 to standby (0) or active mode (1)
 const int pinCSN = 5; //This pin is used to tell the nRF24 whether the SPI communication is a command or message to send out
 word gotWord = 0; //used to store payload from transmit module
@@ -191,15 +194,29 @@ void loop ()
     }
 
     //print all the variables
-    //Serial.print(F("speed: "));
     String msgDisplay = "";
-    msgDisplay += payload[0];
-    msgDisplay += "  ";
-    for (int i = 0; i < expPayload.msgLength; ++i ) {
-      msgDisplay += payload[2 + i];
+    if(SerialDebug){
+      msgDisplay +=  uintToint(payload[0]);
       msgDisplay += "  ";
+      msgDisplay +=  uintToint(payload[1]);
+      msgDisplay += "  ";
+      
+      for (int i = 0; i < expPayload.msgLength; ++i ) {
+        msgDisplay +=   uintToint(payload[2 + i]);
+        msgDisplay += "  ";
+      }
+      Serial.println(msgDisplay);
     }
-    Serial.println(msgDisplay);
+    
+    for (int i = 0; i < expPayload.msgLength; i+=2 ) {
+      msgDisplay +=  uintToint(payload[0]);
+      msgDisplay += '\t';
+      msgDisplay += uintToint(payload[2 + i]);
+      msgDisplay += '\t';
+      msgDisplay += uintToint(payload[3 + i]);
+      msgDisplay += '\n';
+    }
+    Serial.print(msgDisplay);
 
     //    Serial.print(payload[0]);
     //    Serial.print(F("  "));
@@ -218,6 +235,14 @@ void loop ()
   }
 }  // end of loop
 
+int16_t uintToint(word numberIn){
+  
+  if(numberIn >32767){
+    return (int16_t)(numberIn-65536);
+  }else{
+    return (int16_t)numberIn;;
+  }
+}
 void interruptFunction() {
   detachInterrupt(1); //interrupt on pin D3
   count++; //up the receive counter
