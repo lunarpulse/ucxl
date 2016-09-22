@@ -206,18 +206,22 @@ void loop ()
         msgDisplay += "  ";
       }
       Serial.println(msgDisplay);
-    }
-    
-    for (int i = 0; i < expPayload.msgLength; i+=2 ) {
+    }else{
+      
+    for (int i = 0; i < expPayload.msgLength; i+=3 ) {
       msgDisplay +=  uintToint(payload[0]);
       msgDisplay += '\t';
       msgDisplay += uintToint(payload[2 + i]);
       msgDisplay += '\t';
       msgDisplay += uintToint(payload[3 + i]);
+      msgDisplay += '\t';
+      msgDisplay += uintToint(payload[4 + i]);
       msgDisplay += '\n';
     }
     Serial.print(msgDisplay);
 
+    }
+    
     //    Serial.print(payload[0]);
     //    Serial.print(F("  "));
     //
