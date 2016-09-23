@@ -218,11 +218,12 @@ typedef struct {
 typedef struct {
   unsigned int pwmSpeed = 90;   // I length of bootloader hex data (bytes)
   unsigned int sampleCounter = 0; //when came out of the measurement loop then store the counter here and catch up from where left off
-  uint32_t waitingDelay = 22; //frequency delay between measuemrents
+  uint32_t waitingDelay = 30; //frequency delay between measuemrents
   bool completeMeasurementLoop = false;
   unsigned int prevRotation = 1;
   float sound_speed = 340.29;
   unsigned int repeatedErrorCount[SENSORNUM] = {0};
+  unsigned int noErrorCount[SENSORNUM] = {0};
   uint32_t waitingTime[SENSORNUM] = {0};
   bool triggered[SENSORNUM] = {false};
   bool recieved[SENSORNUM] = {false};
@@ -267,6 +268,7 @@ typedef struct {
   GyroValue gyroValue;
   uint16_t range = 0;
   bool error = false;
+  float prev_time_elasped = 0;
   uint32_t timeStamp = 0;
   int16_t reflected_yaw = 0;
   int16_t reflected_pitch = 0;
@@ -631,30 +633,6 @@ uint16_t read_sensor(byte bit8address) {
   }
 }
 
-bool measure(const int sensors, SensorData * sensorData) {//sensor array[] and call all and waiting
-
-  sampleIMUtoSensor(sensorData); //taking timestamp 1 here
-
-  sensorData->error |= start_sensor(sensors);    //Start the sensor and collect any error codes.
-
-  if (sensorData->error == 0) {
-    //TODO notify error sensors.
-    //    uint32_t  measureWaitingNow = 0, measureWaitingPrevMeasure = 0, measureWaitingAccumulated = 0; // used to calculate integration interval
-    //    do {
-    //      measureWaitingNow =  millis();
-    //      sampleIMU(); //sample more IMU collecting and linear filter them while waiting. asynchronous sampling
-    //      measureWaitingPrevMeasure = millis();
-    //      measureWaitingAccumulated += measureWaitingPrevMeasure - measureWaitingNow;
-    //    } while (measureWaitingAccumulated < expLoopStatus.waitingDelay); //no need to be super accurate about this just sample enough to provide
-
-    sensorData->range = read_sensor(sensors);   //reading the sensor will return an integer value -- if this value is 0 there was an error
-
-    return 1; //early return for a valid measurement check available.Z
-  }
-  else {
-    return 0;
-  }
-}
 SensorData measurements[SENSORNUM];
 void measure_cycle() {
   
@@ -697,12 +675,13 @@ void measure_cycle() {
         if (measurements[i].range == 0 || measurements[i].range > 764 ) {
         //time of waiting adjustment based on the direction of increment and amount of increment.
         expLoopStatus.repeatedErrorCount[i]++;
+        expLoopStatus.noErrorCount[i]=0;
         if (expSetting.sinage[i] == 1) { //positive increment
-          if (expLoopStatus.repeatedErrorCount[i] > 3) {
+          if (expLoopStatus.waitingTime[i]> (uint32_t)(measurements[i].prev_time_elasped * 3.0f) ){//expLoopStatus.repeatedErrorCount[i] > 3&& expLoopStatus.waitingTime[i]>15 ) {
             expSetting.sinage[i] = -1;
           }
         } else {
-          if (expLoopStatus.repeatedErrorCount[i] > 3) {
+          if (expLoopStatus.waitingTime[i]> (uint32_t)(measurements[i].prev_time_elasped * 3.0f) ){//{expLoopStatus.repeatedErrorCount[i] > 3) {
             expSetting.sinage[i] = 1;
           }
         }
@@ -712,10 +691,14 @@ void measure_cycle() {
           Serial.print(expLoopStatus.waitingTime[i]); Serial.println("  waiting delay");
         }
       } else {
-        expLoopStatus.repeatedErrorCount[i] = 0;
+        expLoopStatus.noErrorCount[i]++;
+        if(expLoopStatus.noErrorCount[i]>3){
+          expLoopStatus.repeatedErrorCount[i] = 0;
+        }
       }
 
       float elsp_time = (float)measurements[i].range / expLoopStatus.sound_speed * 20.0f; //time1 ms - time2 ms (range / speed of sound in s *1000 s/ms )
+      measurements[i].prev_time_elasped =elsp_time;
       measurements[i].reflected_yaw = measurements[i].gyroValue.yaw; // (uint16_t)(sensorData->gyroValue.yaw + (float)(elsp_time * sensorData->gyroValue.zg)/1000000.0f * expSetting.coefficient_yaw);
 
       if (EXPDEBUG1) {
@@ -725,6 +708,7 @@ void measure_cycle() {
         Serial.print(pitch); Serial.print("  ");
         Serial.print(roll); Serial.print("  ");
         Serial.print(elsp_time); Serial.print("  ");
+        Serial.print((uint32_t)(measurements[i].prev_time_elasped * 3.0f)); Serial.print("  ");
         Serial.println(measurements[i].range);
       }
       expLoopStatus.recieved[i] = false;
