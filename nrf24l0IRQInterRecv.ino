@@ -207,21 +207,79 @@ void loop ()
       }
       Serial.println(msgDisplay);
     }else{
-      
-    for (int i = 0; i < expPayload.msgLength; i+=3 ) {
-      msgDisplay +=  uintToint(payload[0]);
-      msgDisplay += '\t';
-      msgDisplay += uintToint(payload[2 + i]);
-      msgDisplay += '\t';
-      msgDisplay += uintToint(payload[3 + i]);
-      msgDisplay += '\t';
-      msgDisplay += uintToint(payload[4 + i]);
-      msgDisplay += '\n';
-    }
-    Serial.print(msgDisplay);
+//      
+//    for (int i = 0; i < expPayload.msgLength; i+=3 ) {
+////      msgDisplay +=  uintToint(payload[0]);
+////      msgDisplay += '\t';
+//      msgDisplay += uintToint(payload[2 + i]);
+//      msgDisplay += '\t';
+//      msgDisplay += uintToint(payload[3 + i]);
+//      msgDisplay += '\t';
+//      msgDisplay += uintToint(payload[4 + i]);
+//      msgDisplay += '\n';
+//    }
+//    Serial.print(msgDisplay);
+
+        bool pay1=false;
+        for(int i=0; i< expPayload.msgLength; i+=3 ) {
+          if (pay1==false && payload[2 + i]=='0'){
+            msgDisplay += payload[2 + i];
+            msgDisplay += '\t';
+            msgDisplay +=  payload[3 + i];
+            msgDisplay += '\t';
+            msgDisplay += payload[4 + i];
+            msgDisplay += '\t';
+            pay1 = true;
+          }else if(pay1==true && payload[2 + i]=='1'){
+            msgDisplay += payload[2 + i];
+            msgDisplay += '\t';
+            msgDisplay +=  payload[3 + i];
+            msgDisplay += '\t';
+            msgDisplay += payload[4 + i];
+            msgDisplay += '\n';
+            pay1 = false;
+          }else if(pay1==true && payload[2 + i]=='0'){
+            msgDisplay += '0';
+            msgDisplay += '\t';
+            msgDisplay += '0';
+            msgDisplay += '\t';
+            msgDisplay += '0';
+            msgDisplay += '\n';
+            msgDisplay += payload[2 + i];
+            msgDisplay += '\t';
+            msgDisplay +=  payload[3 + i];
+            msgDisplay += '\t';
+            msgDisplay += payload[4 + i];
+            msgDisplay += '\t';
+            pay1 = true;
+          }else if(pay1==false && payload[2 + i]=='1'){
+            msgDisplay += '0';
+            msgDisplay += '\t';
+            msgDisplay += '0';
+            msgDisplay += '\t';
+            msgDisplay += '0';
+            msgDisplay += '\t';
+            msgDisplay += payload[2 + i];
+            msgDisplay += '\t';
+            msgDisplay +=  payload[3 + i];
+            msgDisplay += '\t';
+            msgDisplay += payload[4 + i];
+            msgDisplay += '\n';
+            pay1 = false;
+          }else{
+            //msgDisplay +=  uintToint(payload[0]);
+            //msgDisplay += '\t';
+            msgDisplay += uintToint(payload[2 + i]);
+            msgDisplay += '\t';
+            msgDisplay += uintToint(payload[3 + i]);
+            msgDisplay += '\t';
+            msgDisplay += uintToint(payload[4 + i]);
+            msgDisplay += '\n';
+          }
+        }
+        Serial.print(msgDisplay);
 
     }
-    
     //    Serial.print(payload[0]);
     //    Serial.print(F("  "));
     //

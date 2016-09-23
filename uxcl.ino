@@ -7,7 +7,9 @@
 #define NUMPAYLOADPERPACKET 14
 #define PACKSIZE 32
 #define SENSORNUM 2
-
+#define EXPDEBUG0 true
+#define EXPDEBUG1 true
+#define EXPDEBUG2 false
 //Magnetometer Registers
 #define AK8963_ADDRESS   0x0C
 #define WHO_AM_I_AK8963  0x00 // should return 0x48
@@ -372,7 +374,7 @@ ExperimentSetting expSetting;
 //======Sensor and servo init start
 Servo myservo; //download the servo library and inspect how it works and use it in C code later
 const int esc_sig_pin = 3; // any pwm available pin (3, 6, 9, 11)
-const int ultrasonic_sensor_address[SENSORNUM] = {24, 34}; //secsor collections};//
+const int ultrasonic_sensor_address[SENSORNUM] = {34,24}; //secsor collections};//
 
 //int angular_speed = 0; //initial angular speed
 //int limit = 132; // anticlockwise PWM upper speed limit for the ESC
@@ -696,23 +698,26 @@ bool measure(const int sensors, SensorData * sensorData) {//sensor array[] and c
   //}
   //}
   //if any of the sensor data is available
-  bool errorCombined = false;
+  //bool errorCombined = false;
   //for (int i = 0; i < SENSORNUM; i++) {
-  errorCombined |= sensorData->error;
-  if (errorCombined) {
+  //errorCombined |= sensorData->error;
+  if (sensorData->error) {
+    
     //TODO notify error sensors.
     if (SerialDebug) {
       Serial.print("Error Sensor number "); Serial.println(sensorData->sensorID);
     }
-  } else {
-    //continue; //next
+    return 0;
   }
+//  else {
+//    //continue; //next
+//  }
   //}
-  if (errorCombined) {
-    //free(sensorData);
-    sampleIMU();
-    return 0; //sending all sensorData with error flag on;
-  }
+//  if (errorCombined) {
+//    //free(sensorData);
+//    sampleIMU();
+//    return 0; //sending all sensorData with error flag on;
+//  }
   //delay(expLoopStatus.waitingDelay); //frequency determiner recommended value > 6.5ms * previous measurement / 100
   uint32_t  measureWaitingNow = 0, measureWaitingPrevMeasure = 0, measureWaitingAccumulated = 0; // used to calculate integration interval
   do {
@@ -728,13 +733,17 @@ bool measure(const int sensors, SensorData * sensorData) {//sensor array[] and c
   } while (measureWaitingAccumulated < expLoopStatus.waitingDelay); //no need to be super accurate about this just sample enough to provide
   //time to collect ultrasonic range finder measurements
   //for (int i = 0; i < SENSORNUM; i++) {
-  if (sensorData->error) { //error == 1 then
-    sensorData->range = 0;
-    sampleIMU();
-    //continue; //next sequence
-  }
+//  if (sensorData->error) { //error == 1 then
+//    sensorData->range = 0;
+//    sampleIMU();
+//    return 0;
+//    //continue; //next sequence
+//  }
   sensorData->range = read_sensor(sensors);   //reading the sensor will return an integer value -- if this value is 0 there was an error
-  Serial.println(sensorData->range);
+  if(EXPDEBUG1){
+    Serial.println(sensorData->range);  
+  }
+  
   //TODO calculate the time of flight and figure out when was the measurment hit the objects (sensorData->timeStamp - millis())/12.8
   //}
   //TODO calculate the actual yaw from the gyro and time of flight.
@@ -766,39 +775,41 @@ void measure_cycle() {
         measurement_check |= measure(ultrasonic_sensor_address[i], &measurements[i]); //reading the sensor and append to the reading
 
       }
-
-      if (measurement_check) {
-        //prepare the results to send through the radio
-
-        //value check range 0 or 675 than redo the measurement Do it again?
-        for (size_t i = 0; i < SENSORNUM; i++) {
-          if (measurements[i].range == 0 || measurements[i].range == 765) {
-            measurement_check = measure(ultrasonic_sensor_address[i], &measurements[i]); //only one of them update?
-          }
-        }
-      } else {
-        if (SerialDebug) {
-          Serial.println("something wrong with all sensors");
-        }
-        //TODO send warning signs through nrf24
-        return;
-      }
+  
+//      if (measurement_check) {
+//        //prepare the results to send through the radio
+//
+//        //value check range 0 or 675 than redo the measurement Do it again?
+//        for (size_t i = 0; i < SENSORNUM; i++) {
+//          if (measurements[i].range == 0 || measurements[i].range == 765) {
+//            measurement_check = measure(ultrasonic_sensor_address[i], &measurements[i]); //only one of them update?
+//          }
+//        }
+//      } else {
+//        if (SerialDebug) {
+//          Serial.println("something wrong with all sensors");
+//        }
+//        //TODO send warning signs through nrf24
+//        return;
+//      }
       for (size_t i = 0; i < SENSORNUM; i++) {
         //uint16_t measurement = measure(ultrasonic_sensor_address[i]); //reading the sensor and append to the reading
         //uint16_t: 2 bytes -> [0-65535] or [0x0000-0xFFFF]
         //TODO change it to fill up the payload buffer
-        result[expPayload.msgLength++] = (uint16_t)measurements[i].sensorID;
-        result[expPayload.msgLength++] = (uint16_t)measurements[i].reflected_yaw;
-        result[expPayload.msgLength++] = (uint16_t)measurements[i].range; //one variable case change array case
-        //if(SerialDebug){
-        Serial.print(expPayload.angularSpeed); Serial.print(" ");
-        //Serial.print(expPayload.msgLength - 3); Serial.print(" ");
-        Serial.print(result[expPayload.msgLength - 3]); Serial.print(" ");
-        //Serial.print(expPayload.msgLength - 2); Serial.print(" ");
-        Serial.print(result[expPayload.msgLength - 2]); Serial.print(" ");
-        //Serial.print(expPayload.msgLength - 1); Serial.print(" ");
-        Serial.println(result[expPayload.msgLength - 1]);
-        //}
+        if (measurements[i].range != 0 && measurements[i].range != 765) {
+          result[expPayload.msgLength++] = (uint16_t)measurements[i].sensorID;
+          result[expPayload.msgLength++] = (uint16_t)measurements[i].reflected_yaw;
+          result[expPayload.msgLength++] = (uint16_t)measurements[i].range; //one variable case change array case
+          if(EXPDEBUG1){
+          Serial.print(expPayload.angularSpeed); Serial.print(" ");
+          //Serial.print(expPayload.msgLength - 3); Serial.print(" ");
+          Serial.print(result[expPayload.msgLength - 3]); Serial.print(" ");
+          //Serial.print(expPayload.msgLength - 2); Serial.print(" ");
+          Serial.print(result[expPayload.msgLength - 2]); Serial.print(" ");
+          //Serial.print(expPayload.msgLength - 1); Serial.print(" ");
+          Serial.println(result[expPayload.msgLength - 1]);
+          }
+        }
       }
       //error check? if any of them are 001 style and log it and more than tollerence.
       bool errorCombined = 0;
@@ -818,19 +829,20 @@ void measure_cycle() {
       expLoopStatus.sampleCounter++;
       //expPayload.msgLength= expPayload.msgLength + expSetting.sensorNumber;
       //Serial.print(expPayload.msgLength); Serial.print(" ");Serial.print(expLoopStatus.sampleCounter); Serial.println(" ");
+      
       if (expPayload.msgLength == expLoopStatus.transmitNumber || expLoopStatus.sampleCounter > expSetting.requiredSampleNumber - 1) { //full buffer then send it and prepare it
         //prepare the data, by mix and match method, into a payload structure and send it
         const uint16_t payload[] = {expPayload.angularSpeed, expPayload.msgLength, result[0], result[1],
                                     result[2], result[3], result[4], result[5], result[6], result[7],
                                     result[8], result[9], result[10], result[11], result[12], result[13]
                                    }; //initialising and terminating in this scope only
-        //if(SerialDebug){
-        for (int i = 0; i < (int)expPayload.msgLength; ++i ) {
-          Serial.print(payload[2 + i]);
-          Serial.print("  ");
-        }
-        Serial.println();
-        //}
+//        if(EXPDEBUG1){
+//        for (int i = 0; i < (int)expPayload.msgLength; ++i ) {
+//          Serial.print(payload[2 + i]);
+//          Serial.print("  ");
+//          }
+//        Serial.println();
+//        }
 
         sendResultToHost(payload); //sending only we need?
         expPayload.msgLength = 0;
@@ -1078,7 +1090,9 @@ void setup ()
   }
 
   expLoopStatus.transmitNumber = (NUMPAYLOADPERPACKET / (expSetting.sensorNumber * expSetting.numb_transmit_record)) * (expSetting.sensorNumber * expSetting.numb_transmit_record); //limit number per packet
-  Serial.print(expLoopStatus.transmitNumber); Serial.print("  ");
+   if (EXPDEBUG2) {
+      Serial.print(expLoopStatus.transmitNumber); Serial.print("  ");
+   }
   randomSeed(analogRead(0));    //use random ADC value to seed random number algorithm
   Serial.println(F("sensor calibration compeleted"));
   char msg[] = "sensor calibration compeleted";
