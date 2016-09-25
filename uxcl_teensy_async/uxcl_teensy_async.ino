@@ -385,225 +385,7 @@ unsigned int mid_point = (expSetting.pwmLimit - expSetting.arm) / 2 + expSetting
 
 
 states state = NONE;
-
 motorStates motorStatus = STOP;
-
-void expSettup(const unsigned int value) {
-  switch (state) {
-    case GOT_I:
-      expSetting.rotationSpeedIncrement = value;
-      break;
-    case GOT_F:
-      expSetting.measurmentFrequency = value;
-      break;
-    case GOT_M:
-      expSetting.requiredSampleNumber = value;
-      break;
-    case GOT_D:
-      expSetting.rotationDirection = value;
-      break;
-    case GOT_P:
-      expSetting.pauseTime = value;
-      break;
-    case GOT_R:
-      expSetting.restartValue = value;
-      break;
-    case GOT_U:
-      expSetting.sensorNumber = value;
-      break;
-    case NONE:
-    default:
-      break;
-  }
-  return;
-}
-
-void processDisplayCurrentSetting ()
-{
-  // print all the setting values of this experiment
-  Serial.println ("======================================");
-  Serial.println ("Current settings are : ");
-  Serial.print ("Rotation increment in pwm value = ");
-  Serial.println (expSetting.rotationSpeedIncrement);
-  Serial.print ("Rotation direction = ");
-  Serial.println (expSetting.rotationDirection);
-  Serial.print ("The number of required samples in a speed = ");
-  Serial.println (expSetting.requiredSampleNumber);
-  Serial.print ("Frequency = ");
-  Serial.println (expSetting.measurmentFrequency);
-  Serial.print ("PauseTime = ");
-  Serial.println (expSetting.pauseTime);
-  Serial.print ("restart Value = ");
-  Serial.println (expSetting.restartValue);
-  Serial.println ("======================================");
-  return;
-} // end of processDisplayCurrentSetting
-
-void processSampleDisp (const unsigned int value) //const int so not changing the value
-{
-  // should it be displayed or sent to a sensor?
-  Serial.print ("Number of samples to display = ");
-  Serial.println (value);
-}
-void setTrasmitNumber() {
-}
-
-void setTrasmitNumberUser(const unsigned int value) {
-
-}
-
-void setRotationDirection(const unsigned int value) {
-  //expSetting.rotationDirection = value;
-  //  if (value == 0) {
-  //    expLoopStatus.pwmSpeed = expSetting.arm + expSetting.speed_offset;
-  //
-  //  } else {
-  //    expLoopStatus.pwmSpeed = mid_point;
-  //  }
-  Serial.print ("Rotation direction value = ");
-  Serial.println (value);
-}
-
-void changeRotationIncre (const unsigned int value)
-{
-  expSetting.rotationSpeedIncrement = value;
-  //serial line ouput message for debugging
-  Serial.print ("Rotation increment in pwm value = ");
-  Serial.println (value);
-}
-
-void changeSampleM(const unsigned int value)
-{
-  expSetting.requiredSampleNumber = value;
-  //serial line ouput message for debugging
-  Serial.print ("changed required Sample Number:");
-  Serial.println (expSetting.requiredSampleNumber);
-} // end of changeSampleM
-
-void changeFreq(const unsigned int value)
-{
-  expSetting.measurmentFrequency = value;
-  expLoopStatus.waitingDelay = 1000 / expSetting.measurmentFrequency;
-
-  // sending frequency of sensing to a sensor
-  Serial.print ("Frequency = ");
-  Serial.println (expSetting.measurmentFrequency);
-} // end of changeFreq
-
-void restartMotor(const unsigned int value)
-{
-  expSetting.restartValue = value;
-  expLoopStatus.completeMeasurementLoop = true;
-  motorStatus = RESTART;
-
-  //restarting the motor with pwm value given
-  //serial line ouput message for debugging
-  Serial.print ("restarting Motor with pwm value: ");
-  Serial.println (expSetting.restartValue);
-}
-void pauseMotor(const unsigned int value)// stop the motor for the value seconds
-{
-  expSetting.pauseTime = value;
-  motorStatus = STOP;
-  //pausing motor for seconds
-  Serial.print ("pauseMotor = ");
-  Serial.println (expSetting.pauseTime);
-}
-
-void handlePreviousState ()
-{
-  expSettup(currentValue); //setting all the value in the global variable now
-
-  switch (state)
-  {
-    case GOT_N:
-      setTrasmitNumberUser(currentValue);
-      break;
-    case GOT_D:
-      setRotationDirection (currentValue); //no arguments needed
-      break;
-    case GOT_S:
-      processSampleDisp (currentValue);
-      break;
-    case GOT_M:
-      changeSampleM (currentValue);
-      break;
-    case GOT_F:
-      changeFreq (currentValue);
-      break;
-    case GOT_R:
-      restartMotor (currentValue);
-      break;
-    case GOT_P:
-      pauseMotor (currentValue);
-      break;
-    case GOT_I:
-      changeRotationIncre (currentValue);
-      break;
-    case GOT_U:
-      setTrasmitNumber();
-      break;
-    default:
-      //state = NONE;
-      break;
-  }  // end of switch
-  currentValue = 0;
-}  // end of handlePreviousState
-
-void processIncomingByte (const byte c)
-{
-  if (isdigit (c) && c != 0) //need to get multiple bytes of digits
-  {
-    currentValue *= 10;
-    currentValue += c - '0';
-  }  // end of digit
-  else {    // The end of the number signals a state change
-
-    handlePreviousState (); //exit flag - no more processing inside
-
-    char upperC = toupper (c);
-    /*
-      if (!upperC){
-      Serial.println("Non-alphabet character detected");
-      return;
-      }
-    */
-    // set the new state, if we recognize it
-    switch (upperC)
-    {
-      case 'N':
-        state = GOT_N;
-        break;
-      case 'D':
-        state = GOT_D;
-        break;
-      case 'I':
-        state = GOT_I;
-        break;
-      case 'S':
-        state = GOT_S;
-        break;
-      case 'M':
-        state = GOT_M;
-        break;
-      case 'F':
-        state = GOT_F;
-        break;
-      case 'R':
-        state = GOT_R;
-        break;
-      case 'P':
-        state = GOT_P;
-        break;
-      case 'U':
-        state = GOT_U;
-        break;
-      default:
-        state = NONE;
-        break;
-    }  // end of switch on processing incoming bytes
-  }// end of non-digit
-} // end of processIncomingByte
 
 //Servo functions
 boolean start_sensor(byte bit8address) {
@@ -635,7 +417,7 @@ uint16_t read_sensor(byte bit8address) {
 
 SensorData measurements[SENSORNUM];
 void measure_cycle() {
-  
+
   //Serial.print(F("start loop"));Serial.print("  ");
   //Serial.print(expLoopStatus.waitingTime[i]); Serial.println("  waiting delay");
 
@@ -657,7 +439,7 @@ void measure_cycle() {
       //Serial.print(expLoopStatus.triggered[i]); Serial.println("sensor  triggered");
       //time more than waitingTime[i] > elasped time in the loop
 
-      if ( millis()- measurements[i].timeStamp > expLoopStatus.waitingTime[i]) {
+      if ( millis() - measurements[i].timeStamp > expLoopStatus.waitingTime[i]) {
         //Serial.print(millis()- measurements[i].timeStamp); Serial.println(" ms elasped");
         measurements[i].range = read_sensor(ultrasonic_sensor_address[i]);   //reading the sensor will return an integer value -- if this value is 0 there was an error
         expLoopStatus.recieved[i] = true;
@@ -672,33 +454,57 @@ void measure_cycle() {
     if (expLoopStatus.recieved[i] == false) {
       return;
     } else {
-        if (measurements[i].range == 0 || measurements[i].range > 764 ) {
+      if ( 3 * measurements[i].prev_time_elasped - expLoopStatus.waitingTime[i] > 3 * expSetting.increment_waiting_time[i]) {
+        //+
+        expSetting.sinage[i] = 1;
+      } else if (expLoopStatus.waitingTime[i] - 3 * measurements[i].prev_time_elasped > 3 * expSetting.increment_waiting_time[i]) {
+        //-
+        expSetting.sinage[i] = -1;
+      }
+      else {
+        expSetting.sinage[i] = 0;
+      }
+      if (expLoopStatus.waitingTime[i] > 24) { //expLoopStatus.minimumDelay
+        expLoopStatus.waitingTime[i] = expLoopStatus.waitingTime[i] + expSetting.sinage[i] * (int)expSetting.increment_waiting_time[i];
+      }
+
+      //if error in the recieved value
+      if (measurements[i].range == 0 || measurements[i].range > 764 ) {
         //time of waiting adjustment based on the direction of increment and amount of increment.
         expLoopStatus.repeatedErrorCount[i]++;
-        expLoopStatus.noErrorCount[i]=0;
-        if (expSetting.sinage[i] == 1) { //positive increment
-          if (expLoopStatus.waitingTime[i]> (uint32_t)(measurements[i].prev_time_elasped * 3.0f) ){//expLoopStatus.repeatedErrorCount[i] > 3&& expLoopStatus.waitingTime[i]>15 ) {
-            expSetting.sinage[i] = -1;
-          }
+        expLoopStatus.noErrorCount[i] = 0;
+        uint32_t actualSensingTime = 3 * measurements[i].prev_time_elasped ;
+        if (expLoopStatus.waitingTime[i] > actualSensingTime ) { //expLoopStatus.repeatedErrorCount[i] > 3&& expLoopStatus.waitingTime[i]>15 ) {
+          expSetting.sinage[i] = -1;
         } else {
-          if (expLoopStatus.waitingTime[i]> (uint32_t)(measurements[i].prev_time_elasped * 3.0f) ){//{expLoopStatus.repeatedErrorCount[i] > 3) {
-            expSetting.sinage[i] = 1;
-          }
+          expSetting.sinage[i] = 1;
         }
-        expLoopStatus.waitingTime[i] += expSetting.sinage[i] * expSetting.increment_waiting_time[i];
+
         if (EXPDEBUG1) {
-          Serial.print("Error Sensor number "); Serial.print(measurements[i].sensorID);Serial.print(" "); 
+          Serial.print("actualSensingTime "); Serial.print( actualSensingTime); Serial.print(" ");
+          Serial.print(expSetting.sinage[i]); Serial.println("  sinage");
+          Serial.print(expSetting.increment_waiting_time[i]); Serial.println("  inc waiting time");
+          Serial.print(expSetting.sinage[i] * (int)expSetting.increment_waiting_time[i]); Serial.println("  expSetting.sinage[i] * expSetting.increment_waiting_time[i]");
+        }
+        if (expLoopStatus.noErrorCount[i] > 8) {
+          expLoopStatus.waitingTime[i] = expLoopStatus.waitingDelay;
+        } else {
+          expLoopStatus.waitingTime[i] = expLoopStatus.waitingTime[i] + expSetting.sinage[i] * (int)expSetting.increment_waiting_time[i];
+        }
+
+        if (EXPDEBUG1) {
+          Serial.print("Error Sensor number "); Serial.print(measurements[i].sensorID); Serial.print(" ");
           Serial.print(expLoopStatus.waitingTime[i]); Serial.println("  waiting delay");
         }
       } else {
         expLoopStatus.noErrorCount[i]++;
-        if(expLoopStatus.noErrorCount[i]>3){
+        if (expLoopStatus.noErrorCount[i] > 3) {
           expLoopStatus.repeatedErrorCount[i] = 0;
         }
       }
 
       float elsp_time = (float)measurements[i].range / expLoopStatus.sound_speed * 20.0f; //time1 ms - time2 ms (range / speed of sound in s *1000 s/ms )
-      measurements[i].prev_time_elasped =elsp_time;
+      measurements[i].prev_time_elasped = (elsp_time == 0) ? measurements[i].prev_time_elasped : elsp_time;
       measurements[i].reflected_yaw = measurements[i].gyroValue.yaw; // (uint16_t)(sensorData->gyroValue.yaw + (float)(elsp_time * sensorData->gyroValue.zg)/1000000.0f * expSetting.coefficient_yaw);
 
       if (EXPDEBUG1) {
@@ -716,104 +522,6 @@ void measure_cycle() {
   }
   //Serial.println(F("end loop"));
   return; //successful return after all the the
-}
-
-void slowDown(unsigned int required_speed, unsigned int interval) {
-  myservo.write(required_speed - (required_speed - expLoopStatus.pwmSpeed) / 3); //expSetting.rotationDirection ==1
-  delay(interval);//TODO find alternative code not to use the inter timer0 disable timer 0 later
-  myservo.write(required_speed - 2 * (required_speed - expLoopStatus.pwmSpeed) / 3); //expSetting.rotationDirection ==1
-  delay(interval); //these stops everything exclude isr
-  myservo.write(required_speed); //stopping status
-  expLoopStatus.pwmSpeed = required_speed;
-  return;
-}
-
-int motorStatusFunc() {
-  switch (motorStatus) {
-    case STOP:
-      if (expLoopStatus.pwmSpeed != mid_point) {
-        slowDown(mid_point, 1000);
-      }
-      return 1; //getting out of this function
-    case RESTART:
-      if (expLoopStatus.pwmSpeed != expSetting.restartValue) {
-        slowDown(expSetting.restartValue, 500);
-        expLoopStatus.pwmSpeed = expSetting.restartValue;
-      }
-      motorStatus = RUN;
-      break;
-    case RUN: // all run?
-    default:
-      //do nothing just go out of the switch and continue the next script
-      //continue; //to the end of the current loop
-      break;
-  }//how much clocks to do these?
-  return 0;
-}
-
-void ucxl_measurements() {
-
-  //expPayload.angularSpeed = expLoopStatus.pwmSpeed;//preparing the first field of the payload to host
-  if (motorStatusFunc()) {
-    return;
-  }
-  if (SerialDebug) {
-    Serial.println("pwm set up");
-  }
-  expLoopStatus.prevRotation = expSetting.rotationDirection;
-  if (expSetting.rotationDirection == 1) { //clockwise direction
-    for (; expLoopStatus.pwmSpeed > expSetting.arm + expSetting.speed_offset; )
-    {
-      if (expLoopStatus.prevRotation != expSetting.rotationDirection) {
-        break;
-      }
-      if (SerialDebug) {
-        Serial.println("rotation direction 0");
-      }
-      if (expLoopStatus.completeMeasurementLoop == true) {
-        expLoopStatus.pwmSpeed -= expSetting.rotationDirection * expSetting.rotationSpeedIncrement;
-        expLoopStatus.completeMeasurementLoop = false;
-      }
-      if (SerialDebug) {
-        Serial.println(expLoopStatus.pwmSpeed);
-      }
-      //
-      myservo.write(expLoopStatus.pwmSpeed); //constant speed during the iteration of measurements
-      if (SerialDebug) {
-        Serial.println("servo written");
-      }
-      measure_cycle();
-      if (SerialDebug) {
-        Serial.println("measured cycle");
-      }
-      //
-      //if measure_cycle loop finsihed all the sampling request then move to next one
-      //check the expSetting.requiredSampleNumber == count then increment <- inside
-    }
-    if (expLoopStatus.pwmSpeed < expSetting.arm + expSetting.speed_offset + 1) {
-      slowDown(mid_point, 1000);
-    }
-
-  } else if (expSetting.rotationDirection == 0) { //anticlockwise direction
-    for (; expLoopStatus.pwmSpeed < expSetting.pwmLimit; )
-    {
-      if (expLoopStatus.prevRotation != expSetting.rotationDirection) {
-        break;
-      }
-      if (expLoopStatus.completeMeasurementLoop == true) {
-        expLoopStatus.pwmSpeed += expSetting.rotationSpeedIncrement;
-        expLoopStatus.completeMeasurementLoop = false;
-      }
-
-      myservo.write(expLoopStatus.pwmSpeed);
-      measure_cycle();
-
-    }
-    if (expLoopStatus.pwmSpeed > expSetting.pwmLimit - 1) {
-      slowDown(mid_point, 1000);
-    }
-  }
-  return;
 }
 
 void setup ()
@@ -914,6 +622,10 @@ void setup ()
     }
     while (1) ; // Loop forever if communication doesn't happen
   }
+  //initialising values in arrays with the first element of each array
+  for (int i = 0; i < SENSORNUM; ++i) {
+    expSetting.increment_waiting_time[i] = expSetting.increment_waiting_time[0];
+  }
 
   Serial.println(F("set up finished"));
 }  // end of setup
@@ -923,7 +635,7 @@ void loop ()
   uint32_t requiredTime = expSetting.requiredSampleTime * 1000;
   uint32_t experiment_time_loop = 0;
   uint32_t start_experiment_time =  millis();
-    //check pause or restart - timer needed
+  //check pause or restart - timer needed
   for (int i = 0; i < SENSORNUM; i++) {
     expLoopStatus.waitingTime[i] = expLoopStatus.waitingDelay; //initialising timer of each module
     measurements[i].sensorID = i;
@@ -936,17 +648,6 @@ void loop ()
   } while (requiredTime > millis() - start_experiment_time);
 
   expLoopStatus.pwmSpeed += expSetting.rotationSpeedIncrement;
-
-  //  uint8_t freq = 25;
-  //  for (; freq < 100; freq += 10 ) { //measuring or sensing if not getting any incomming message
-  //    changeFreq (freq);
-  //    Serial.println(F("Freq: "));
-  //    Serial.println(freq);
-  //
-  //    restartMotor(92);
-  //    ucxl_measurements();
-  //    //attach the interrupt back to recv the incomming messages
-  //  }
 }  // end of loop
 //===================================================================================================================
 //====== Set of helper function to access acceleration. gyroscope, magnetometer, and temperature data
